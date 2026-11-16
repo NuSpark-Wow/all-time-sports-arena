@@ -12,17 +12,20 @@
 
   /* ---------- era rule sets ---------- */
   const RULES = {
-    classic: { label: 'Classic (1970–77)', comp: 0.52, ypc: 13.2, int: 0.046, sack: 0.07, ypr: 3.95, fum: 0.011, pen: 0.12, twoPt: false, pat: 0.965, fg50: 45, ko: 31, punt: 36.5, ot: 'sudden', runShare: 0.56, onside: 0.18 },
+    classic: { label: 'Classic (1960–77)', comp: 0.52, ypc: 13.2, int: 0.046, sack: 0.07, ypr: 3.95, fum: 0.011, pen: 0.12, twoPt: false, pat: 0.965, fg50: 45, ko: 31, punt: 36.5, ot: 'sudden', runShare: 0.56, onside: 0.18 },
     passing: { label: 'Passing era (1978–93)', comp: 0.565, ypc: 12.5, int: 0.036, sack: 0.066, ypr: 4.0, fum: 0.0095, pen: 0.125, twoPt: false, pat: 0.975, fg50: 49, ko: 29, punt: 37.5, ot: 'sudden', runShare: 0.5, onside: 0.16 },
     twopoint: { label: 'Two-point era (1994–2011)', comp: 0.595, ypc: 11.8, int: 0.027, sack: 0.058, ypr: 4.1, fum: 0.0075, pen: 0.125, twoPt: true, pat: 0.985, fg50: 53, ko: 28, punt: 38.5, ot: 'sudden', runShare: 0.45, onside: 0.14 },
     modern: { label: 'Modern (2012–today)', comp: 0.645, ypc: 11.2, int: 0.021, sack: 0.055, ypr: 4.35, fum: 0.006, pen: 0.13, twoPt: true, pat: 0.94, fg50: 57, ko: 28, punt: 41, ot: 'modified', runShare: 0.42, onside: 0.07 },
   };
   function rulesForYear(y) { return y <= 1977 ? 'classic' : y <= 1993 ? 'passing' : y <= 2011 ? 'twopoint' : 'modern'; }
   // overall scoring calibration by rule set (team-quality-neutral)
-  const CAL = { classic: 0.74, passing: 0.74, twopoint: 0.74, modern: 0.74 };
+  const CALV = (+(typeof process !== 'undefined' && process.env && process.env.CALV) || 0.96);
+  const CAL = { classic: CALV, passing: CALV, twopoint: CALV, modern: CALV };
+  const TUNE = { runCore: (+(typeof process !== 'undefined' && process.env && process.env.RC) || 0.93), bigRun: (+(typeof process !== 'undefined' && process.env && process.env.BR) || 0.025), bigRunLen: (+(typeof process !== 'undefined' && process.env && process.env.BL) || 40), catchRun: (+(typeof process !== 'undefined' && process.env && process.env.CR) || 0.03), passCore: (+(typeof process !== 'undefined' && process.env && process.env.PC) || 1) };
   const ERA_PPG = { classic: 19.0, passing: 20.3, twopoint: 20.8, modern: 22.6 };
   const KERA = { classic: 0.95, passing: 1.0, twopoint: 1.08, modern: 1.16 };
   let K = 0.62;
+  let PT = +(typeof process !== 'undefined' && process.env && process.env.PT) || 33;
   let LIGHT_NORM = +(typeof process !== 'undefined' && process.env && process.env.LN) || 1;
   let LIGHT_TRUST = +(typeof process !== 'undefined' && process.env && process.env.LT) || 0.5; // strength of team-quality effects (set by calibration)
 
@@ -89,7 +92,7 @@
       const am = (ks) => ks.reduce((x, k) => x + u[k], 0) / ks.length, hm = (ks) => ks.length / ks.reduce((x, k) => x + 1 / u[k], 0);
       const oa = am(['pass', 'run', 'prot', 'sec']), dh = hm(['pdef', 'rdef', 'rush', 'take']);
       ['pass', 'run', 'prot', 'sec'].forEach((k) => { u[k] /= Math.pow(oa, LIGHT_NORM); }); ['pdef', 'rdef', 'rush', 'take'].forEach((k) => { u[k] /= Math.pow(dh, LIGHT_NORM); }); }
-    if (named && ts.light) roster = fillRoster(roster, ts.nick);
+    if (named && (ts.light || ts.fill)) roster = fillRoster(roster, ts.nick);
     const O = ts.O || 1, D = ts.D || 1; // points scored / allowed vs league (D < 1 = good defense)
     // offense units multiply to O, defense units multiply to 1/D
     const off = { pass: O * (u.pass || 1), run: O * (u.run || 1), prot: O * (u.prot || 1), sec: O * (u.sec || 1) };
@@ -99,7 +102,7 @@
     return {
       key: ts.key || (ts.y + ts.fr), y: ts.y, fr: ts.fr, name: ts.name, short: ts.nick || ts.name, city: ts.city,
       W: ts.W, L: ts.L, T: ts.T, PF: ts.PF, PA: ts.PA, G: ts.G, O, D, off, def, st, roster, named, by,
-      badge: ts.badge || (named ? 'silver' : 'bronze'), light: !!ts.light, custom: !!opts.custom, label: opts.label || (ts.y + ' ' + ts.name),
+      badge: ts.badge || (named ? 'silver' : 'bronze'), light: !!ts.light, dream: !!ts.dream, lgppg: ts.lgppg, custom: !!opts.custom, label: opts.label || (ts.y + ' ' + ts.name),
       notes: ts.notes || '',
     };
   }
@@ -236,10 +239,11 @@
   function starBoost(list) { return list.reduce((s, p) => s + (p && p.star ? 1 : 0), 0); }
 
   function runPlay(g, oc, dc, res) {
+    g.box[g.poss].team.plays++;
     const o = offT(g), d = defT(g), so = g.starters[g.poss], sd = g.starters[1 - g.poss];
     const q = q_(o.off.run, d.def.run);
-    let mean = g.R.ypr * Math.exp(0.85 * q) * CAL[g.rules] * g.env;
-    let sd0 = 3.2, big = 0.07 * Math.exp(0.9 * q);
+    let mean = g.R.ypr * TUNE.runCore * Math.exp(0.85 * q) * CAL[g.rules] * g.env;
+    let sd0 = 3.2, big = TUNE.bigRun * Math.exp(0.9 * q);
     if (oc === 'outside') { mean += 0.3; sd0 = 4.4; big *= 1.25; }
     if (oc === 'draw') { mean -= 0.2; if (dc === 'blitz') mean += 2.6; if (dc === 'prevent' || dc === 'zone') mean += 1.2; }
     if (oc === 'sneak') { mean = 1.6 + q; sd0 = 1.3; big = 0.005; }
@@ -250,7 +254,7 @@
     const rb = oc === 'sneak' ? so.QB : (R() < 0.68 ? so.RB[0] : so.RB[1] || so.RB[0]);
     // team strength already counts its stars (it comes from real points), so a star changes who makes the play, not how many points
     let yds;
-    if (R() < big) yds = Math.round(10 + Math.pow(R(), 1.7) * 60);
+    if (R() < big) yds = Math.round(10 + Math.pow(R(), 1.7) * TUNE.bigRunLen);
     else yds = Math.round(mean + norm() * sd0);
     yds = clamp(yds, -6, 100 - g.ball);
     const name = rb ? rb.n : 'RB';
@@ -297,10 +301,11 @@
   }
 
   function passPlay(g, oc, dc, res) {
+    g.box[g.poss].team.plays++;
     const o = offT(g), d = defT(g), so = g.starters[g.poss], sd = g.starters[1 - g.poss];
     const qb = oc === 'hbpass' ? so.RB[0] : so.QB; const qbn = qb ? qb.n : 'QB';
     const qp = q_(o.off.pass, d.def.pass), qs = q_(o.off.prot, d.def.rush);
-    let comp = g.R.comp + 0.11 * qp; let yMult = Math.exp(0.55 * qp) * CAL[g.rules] * g.env; let intR = g.R.int * Math.exp(-1.4 * qp) * Math.exp(-0.5 * q_(o.off.sec, d.def.take)); let sack = g.R.sack * Math.exp(-1.4 * qs);
+    let comp = g.R.comp + 0.11 * qp; let yMult = Math.exp(0.55 * qp) * CAL[g.rules] * TUNE.passCore * g.env; let intR = g.R.int * Math.exp(-1.4 * qp) * Math.exp(-0.5 * q_(o.off.sec, d.def.take)); let sack = g.R.sack * Math.exp(-1.4 * qs);
     const typ = { short: [0.11, 0.62, 1.0, 1.0], deep: [-0.23, 2.05, 1.7, 1.15], screen: [0.17, 0.5, 0.5, 0.35], pa: [-0.02, 1.3, 1.0, 1.15], flea: [-0.1, 2.3, 1.2, 0.8], hbpass: [-0.15, 2.0, 2.0, 0.6] }[oc];
     comp += typ[0]; let yards = g.R.ycomp != null ? g.R.ycomp : g.R.ypc; yards *= typ[1] * yMult; intR *= typ[2]; sack *= typ[3];
     if (oc === 'pa') { const runCred = o.off.run; comp += 0.04 * (runCred - 1); yards *= 1 + 0.15 * (runCred - 1); if (dc === 'runstuff') { comp += 0.06; yards *= 1.3; } }
@@ -330,7 +335,7 @@
     comp = clamp(comp, 0.05, 0.9);
     if (R() < comp) {
       let y = Math.round(yards * (0.55 + R() * 0.9) + norm() * 2);
-      if (R() < 0.06 * Math.exp(0.7 * qp) * (oc === 'deep' ? 1.7 : 1)) y += Math.round(15 + R() * 40); // broken tackle / catch-and-run
+      if (R() < TUNE.catchRun * Math.exp(0.7 * qp) * (oc === 'deep' ? 1.7 : 1)) y += Math.round(15 + R() * 40); // broken tackle / catch-and-run
       y = clamp(y, oc === 'screen' ? -4 : -2, 100 - g.ball);
       ps.cmp++; ps.yds += y; const rs = st(g, g.poss, 'rec', tn); rs.rec++; rs.yds += y; g.box[g.poss].team.py += y; g.box[g.poss].team.yds += y;
       // fumble after catch
@@ -374,7 +379,7 @@
   function crowdFor(g, sideGood, mild) { return sideGood === 1 ? (mild ? 'cheerDef' : 'cheer') : (mild ? 'groan' : 'groan'); }
 
   function gain(g, res, yds, player, kind, qb) {
-    const side = g.poss; g.box[side].team.plays++;
+    const side = g.poss;
     g.drive.plays++; g.drive.yds += yds;
     const newBall = g.ball + yds;
     if (newBall >= 100) {
@@ -436,10 +441,10 @@
 
   function playTime(g, stopped) {
     if (stopped) return 6;
-    if (hurry(g)) return 13 + R() * 6;
+    if (hurry(g)) return 11 + R() * 6;
     const side = g.poss; const l = lead(g, side);
-    if (g.q >= 4 && l > 0) return 40 + R() * 4; // milk it
-    return 33 + R() * 8;
+    if (g.q >= 4 && l > 0) return PT + 9 + R() * 4; // milk it
+    return PT + R() * 8;
   }
   function advanceClock(g, secs) {
     const before = g.clock; g.clock -= secs;
