@@ -18,7 +18,7 @@
         { type: 'real', year: 1980, tm: 'PHI', sp: '' },
       ],
     },
-    dream: [null, null], teams: [null, null], game: null,
+    dream: [null, null], teams: [null, null], game: null, lineup: [null, null],
     calls: { off: 'swing', def: 'normal' }, tab: 'call', auto: null, speed: 1, lastRes: null, chatter: null,
   };
 
@@ -179,7 +179,8 @@
   /* ---------------- dream roster builder ---------------- */
   function openDream(i) {
     const frs = franchises();
-    const cur = S.dream[i] && S.dream[i].cfg || { fr: 'PHI', y0: 1970, y1: 1979, mode: 'avg' };
+    const cur = S.dream[i] && S.dream[i].cfg || { fr: 'PHI', y0: 1970, y1: 1979, mode: 'avg', hitters: 13 };
+    if (!cur.hitters) cur.hitters = 13;
     const show = () => {
       const f = cur.fr === 'ANY' ? { y0: S.idx.meta.years[0], y1: S.idx.meta.years[1] } : frs.find((x) => x.fr === cur.fr) || frs[0];
       cur.y0 = Math.max(f.y0, Math.min(cur.y0, f.y1)); cur.y1 = Math.min(f.y1, Math.max(cur.y1, cur.y0));
@@ -197,6 +198,9 @@
           <button data-m="avg" class="${cur.mode === 'avg' ? 'sel' : ''}">Average over the range</button>
           <button data-m="peak" class="${cur.mode === 'peak' ? 'sel' : ''}">Best single season</button></div>
           <p class="note" style="margin-top:6px">Average is more realistic. Best season puts every player at his peak, like Schmidt's 1980 MVP year.</p></div>
+        <div style="margin-top:12px"><h3>25-man roster split</h3><div class="seg" role="group" aria-label="Hitters and pitchers">
+          ${[13, 14, 15].map((h) => `<button data-h="${h}" class="${cur.hitters === h ? 'sel' : ''}">${h} hitters · ${25 - h} pitchers</button>`).join('')}</div>
+          <p class="note" style="margin-top:6px">Every split has 5 starting pitchers. More hitters means a deeper bench and a shorter bullpen.</p></div>
         <div class="actions"><button class="btn primary" id="dGo">Pick my team</button><button class="btn" id="dCancel">Cancel</button><span id="dMsg" class="note"></span></div>
       </div>`;
       modal.classList.remove('hide');
@@ -204,6 +208,7 @@
       $('#dy0').onchange = (e) => { cur.y0 = +e.target.value; if (cur.y1 < cur.y0) cur.y1 = cur.y0; show(); };
       $('#dy1').onchange = (e) => { cur.y1 = +e.target.value; if (cur.y0 > cur.y1) cur.y0 = cur.y1; show(); };
       modal.querySelectorAll('[data-m]').forEach((b) => b.onclick = () => { cur.mode = b.dataset.m; show(); });
+      modal.querySelectorAll('[data-h]').forEach((b) => b.onclick = () => { cur.hitters = +b.dataset.h; show(); });
       $('#dCancel').onclick = closeModal;
       $('#dGo').onclick = async () => {
         $('#dGo').disabled = true; $('#dMsg').innerHTML = '<span class="spin"></span> Scouting every player…';
@@ -213,7 +218,7 @@
         files.forEach((fd) => { Object.values(fd).forEach((ts) => { if (ts.y >= cur.y0 && ts.y <= cur.y1 && (cur.fr === 'ANY' || ts.fr === cur.fr)) seasons.push(ts); }); });
         if (!seasons.length) { $('#dMsg').textContent = 'No seasons found in that range.'; $('#dGo').disabled = false; return; }
         const pool = E.buildDreamPool(seasons, S.idx.lg, { mode: cur.mode });
-        const picks = E.dreamPicks(pool, true);
+        const picks = E.dreamPicks(pool, true, cur.hitters);
         const fname = cur.fr === 'ANY' ? 'All-Stars' : (frs.find((x) => x.fr === cur.fr) || {}).lastName;
         const label = (cur.y0 === cur.y1 ? cur.y0 : cur.y0 + '–' + String(cur.y1).slice(-2)) + ' ' + fname + (cur.fr === 'ANY' ? '' : ' Dream Team');
         editRoster(i, { cfg: Object.assign({}, cur), pool, picks, label, mode: cur.mode });
@@ -240,6 +245,8 @@
       let h = `<div class="card"><h2>${esc(d.label)}</h2>
         <label class="f" for="dname" style="margin-top:10px">Team name<input id="dname" type="text" value="${esc(d.label)}"></label>
         <p class="note" style="margin-top:6px">Every slot is a dropdown. If you pick someone already on the roster, the two players swap.</p>
+        <div style="margin-top:10px"><h3>25-man roster split</h3><div class="seg" role="group" aria-label="Hitters and pitchers">
+          ${[13, 14, 15].map((h) => `<button data-split="${h}" class="${9 + pk.bench.length === h ? 'sel' : ''}">${h} hitters · ${25 - h} pitchers</button>`).join('')}</div></div>
         <h3 style="margin-top:14px">Lineup</h3>`;
       ['C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF'].forEach((k) => { h += row(k, 'slot:' + k, posList(k), pk.slots[k], bLine); });
       h += row('DH', 'dh', anyBat(), pk.dh, bLine);
@@ -252,6 +259,7 @@
       h += `<div class="actions"><button class="btn primary" id="rSave">Use this team</button><button class="btn" id="rBack">Back</button></div></div>`;
       modal.innerHTML = h; modal.classList.remove('hide'); modal.scrollTop = 0;
       modal.querySelectorAll('[data-slot]').forEach((s) => s.onchange = () => { setSlot(s.dataset.slot, s.value); draw(); });
+      modal.querySelectorAll('[data-split]').forEach((b) => b.onclick = () => { setSplit(+b.dataset.split); draw(); });
       $('#rBack').onclick = () => openDream(i);
       $('#rSave').onclick = () => {
         d.label = ($('#dname').value || d.label).trim().slice(0, 40);
@@ -270,6 +278,15 @@
       for (const t of ['bench', 'sp', 'rp']) { const j = pk[t].indexOf(id); if (j >= 0) return t + ':' + j; }
       return null;
     };
+    function setSplit(hitters) {
+      const benchN = hitters - 9, rpN = 25 - hitters - 5;
+      while (pk.bench.length > benchN) pk.bench.pop();
+      while (pk.rp.length > rpN) pk.rp.pop();
+      const ids = allIds();
+      if (pk.bench.length < benchN) anyBat().filter((b) => !ids.has(b.id)).slice(0, benchN - pk.bench.length).forEach((b) => { pk.bench.push(b.id); ids.add(b.id); });
+      if (pk.rp.length < rpN) anyP().filter((p) => !ids.has(p.id)).slice(0, rpN - pk.rp.length).forEach((p) => { pk.rp.push(p.id); ids.add(p.id); });
+      d.cfg.hitters = 9 + pk.bench.length;
+    }
     function setSlot(key, id) { const old = getSlot(key); const other = findKey(id); putSlot(key, id); if (other && other !== key) putSlot(other, old); }
     allIds();
     draw();
@@ -291,6 +308,7 @@
   }
   async function goPregame() {
     const btn = $('#toPre'); btn.disabled = true; $('#setupMsg').innerHTML = '<span class="spin"></span> Scouting both teams…';
+    S.lineup = [null, null];
     try { S.teams = await buildSides(); } catch (e) { $('#setupMsg').textContent = e.message; btn.disabled = false; return; }
     S.screen = 'pregame'; render();
   }
@@ -341,13 +359,7 @@
       <div class="actions"><button class="btn primary" id="playBall">Play ball</button><button class="btn" id="back">Change teams</button></div>`;
     $('#back').onclick = () => { S.screen = 'setup'; render(); };
     $('#playBall').onclick = startGame;
-    // preview lineups
-    const opts = { dh, awaySP: S.setup.sides[0].type === 'real' ? S.setup.sides[0].sp || undefined : undefined, homeSP: S.setup.sides[1].type === 'real' ? S.setup.sides[1].sp || undefined : undefined };
-    const g = E.newGame(A, H, opts);
-    $('#lineups').innerHTML = [g.away, g.home].map((s, i) => `<section class="card"><h3 style="color:var(${i ? '--home' : '--away'})">Lineup</h3>
-      <table class="box"><thead><tr><th>#</th><th>Pos</th><th>AVG</th><th>HR</th><th>OPS</th></tr></thead><tbody>
-      ${s.lineup.map((x, j) => `<tr><td>${j + 1}. ${esc(x.b.n)}</td><td>${E.POS[x.pos]}</td><td>${f3(x.b.avg)}</td><td>${x.b.hrN}</td><td>${f3(x.b.ops)}</td></tr>`).join('')}
-      </tbody></table><p class="note" style="margin-top:8px">Starting pitcher: <b>${esc(s.pitcher.n)}</b> (${f2(s.pitcher.era)} ERA, ${s.pitcher.w}–${s.pitcher.l})</p></section>`).join('');
+    drawLineups();
     setTimeout(() => {
       const pr = E.project(A, H, 300, { dh });
       const n = pr.aw + pr.hw; const aPct = Math.round(pr.aw / n * 100);
@@ -359,11 +371,63 @@
     }, 60);
   }
 
+  /* --- starting lineup editor (pregame) --- */
+  function spOpts() {
+    return { awaySP: S.setup.sides[0].type === 'real' ? S.setup.sides[0].sp || undefined : undefined, homeSP: S.setup.sides[1].type === 'real' ? S.setup.sides[1].sp || undefined : undefined };
+  }
+  function previewGame() {
+    const [A, H] = S.teams;
+    return E.newGame(A, H, Object.assign({ dh: useDH(), awayLineup: S.lineup[0] || undefined, homeLineup: S.lineup[1] || undefined }, spOpts()));
+  }
+  function canEdit() { return true; }
+  function isMine(i) { return S.setup.mode === 'play' && S.setup.userSide === i; }
+  function drawLineups() {
+    const g = previewGame(); const wrap = $('#lineups'); if (!wrap) return;
+    wrap.innerHTML = [g.away, g.home].map((s, i) => {
+      const t = S.teams[i]; const edit = canEdit(i);
+      const posChoices = useDH() ? [1, 2, 3, 4, 5, 6, 7, 8, 9] : [1, 2, 3, 4, 5, 6, 7, 8];
+      const pool = t.batters.filter((b) => !b.isPitcher && (b.pa > 15 || s.lineup.some((x) => x.b.id === b.id))).sort((a, b) => b.pa - a.pa);
+      const rows = s.lineup.map((x, j) => {
+        if (!edit) return `<tr><td>${j + 1}. ${esc(x.b.n)}</td><td>${E.POS[x.pos]}</td><td>${f3(x.b.avg)}</td><td>${x.b.hrN}</td><td>${f3(x.b.ops)}</td></tr>`;
+        const posSel = x.pos === 0 ? '<span class="note">P</span>' : `<select data-lu="pos" data-side="${i}" data-row="${j}" aria-label="Position for batter ${j + 1}" style="padding:5px;width:auto">${posChoices.map((p) => `<option value="${p}"${p === x.pos ? ' selected' : ''}>${E.POS[p]}</option>`).join('')}</select>`;
+        const plSel = x.pos === 0 ? `<span>${esc(x.b.n)}</span>` : `<select data-lu="player" data-side="${i}" data-row="${j}" aria-label="Batter ${j + 1}" style="padding:5px">${pool.map((b) => `<option value="${b.id}"${b.id === x.b.id ? ' selected' : ''}>${esc(b.n)} · ${f3(b.avg)}, ${b.hrN} HR</option>`).join('')}</select>`;
+        return `<tr><td style="white-space:nowrap">${j + 1}.</td><td style="width:62%">${plSel}</td><td>${posSel}</td><td style="white-space:nowrap">
+          <button class="btn small lu-btn" data-lu="up" data-side="${i}" data-row="${j}" aria-label="Move up" ${j === 0 ? 'disabled' : ''}>▲</button>
+          <button class="btn small lu-btn" data-lu="down" data-side="${i}" data-row="${j}" aria-label="Move down" ${j === 8 ? 'disabled' : ''}>▼</button></td></tr>`;
+      }).join('');
+      const head = edit ? '<tr><th>#</th><th>Batter</th><th>Pos</th><th>Order</th></tr>' : '<tr><th>#</th><th>Pos</th><th>AVG</th><th>HR</th><th>OPS</th></tr>';
+      const ttl = isMine(i) ? 'Your starting lineup' : S.setup.mode === 'play' ? 'AI coach\'s lineup' : 'Starting lineup';
+      const tip = isMine(i) ? 'Change any batter or position, and use the arrows to set the batting order. Pick a player who is already in the lineup and the two swap.'
+        : 'The AI set this lineup from who played each spot most. Review it and fix anything that doesn\'t match how the real team played. The AI coach will use your version.';
+      return `<section class="card"><h3 style="color:var(${i ? '--home' : '--away'})">${ttl}</h3>
+        <p class="note" style="margin-top:4px">${tip}</p>
+        <table class="box"><thead>${head}</thead><tbody>${rows}</tbody></table>
+        <p class="note" style="margin-top:8px">Starting pitcher: <b>${esc(s.pitcher.n)}</b> (${f2(s.pitcher.era)} ERA, ${s.pitcher.w}–${s.pitcher.l})</p>
+        ${edit && S.lineup[i] ? `<div class="actions" style="margin-top:8px"><button class="btn small" data-lu="reset" data-side="${i}">Reset to AI lineup</button></div>` : ''}</section>`;
+    }).join('');
+    wrap.querySelectorAll('[data-lu]').forEach((el) => {
+      const ev = el.tagName === 'SELECT' ? 'onchange' : 'onclick';
+      el[ev] = () => editLineup(+el.dataset.side, el.dataset.lu, +el.dataset.row, el.value, g);
+    });
+  }
+  function editLineup(i, kind, row, value, g) {
+    if (kind === 'reset') { S.lineup[i] = null; drawLineups(); return; }
+    const side = i === 0 ? g.away : g.home;
+    const lu = S.lineup[i] ? S.lineup[i].map((x) => Object.assign({}, x)) : side.lineup.map((x) => ({ id: x.b.id, pos: x.pos }));
+    if (kind === 'up' && row > 0) [lu[row - 1], lu[row]] = [lu[row], lu[row - 1]];
+    if (kind === 'down' && row < 8) [lu[row + 1], lu[row]] = [lu[row], lu[row + 1]];
+    if (kind === 'pos') { const p = +value; const other = lu.findIndex((x) => x.pos === p); if (other >= 0) lu[other].pos = lu[row].pos; lu[row].pos = p; }
+    if (kind === 'player') { const other = lu.findIndex((x) => x.id === value); if (other >= 0) lu[other].id = lu[row].id; lu[row].id = value; }
+    S.lineup[i] = lu;
+    drawLineups();
+  }
+
   /* ---------------- game ---------------- */
   function startGame() {
     const st = S.setup; const [A, H] = S.teams;
     S.game = E.newGame(A, H, {
       dh: useDH(), userSide: st.mode === 'play' ? st.userSide : null, difficulty: st.diff,
+      awayLineup: canEdit(0) && S.lineup[0] ? S.lineup[0] : undefined, homeLineup: canEdit(1) && S.lineup[1] ? S.lineup[1] : undefined,
       awaySP: st.sides[0].type === 'real' ? st.sides[0].sp || undefined : undefined, homeSP: st.sides[1].type === 'real' ? st.sides[1].sp || undefined : undefined,
     });
     S.calls = { off: 'swing', def: 'normal' }; S.tab = 'call'; S.lastRes = null; S.chatter = null; S.speed = 1;

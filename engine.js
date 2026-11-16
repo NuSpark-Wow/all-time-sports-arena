@@ -133,22 +133,26 @@
   }
 
   function battingOrder(players) {
-    // players: [{b, pos}] — build a classic order
-    const list = players.slice();
-    const score = (x) => x.b.isPitcher ? -1 : x.b.ops + Math.min(x.b.pa, 600) / 6000;
-    const nonP = list.filter((x) => !x.b.isPitcher);
-    const pit = list.filter((x) => x.b.isPitcher);
-    nonP.sort((a, b) => score(b) - score(a));
-    const top = nonP.slice(0, 4);
-    const power = top.slice().sort((a, b) => (b.b.slg + b.b.hrN / 600) - (a.b.slg + a.b.hrN / 600));
-    const cleanup = power[0];
-    const third = top.filter((x) => x !== cleanup).sort((a, b) => score(b) - score(a))[0];
-    const rest = nonP.filter((x) => x !== cleanup && x !== third);
-    const lead = rest.slice(0, 5).sort((a, b) => (b.b.obp + b.b.speed * 0.05) - (a.b.obp + a.b.speed * 0.05))[0];
-    const rest2 = rest.filter((x) => x !== lead);
-    const second = rest2.slice(0, 4).sort((a, b) => b.b.obp - a.b.obp)[0];
-    const rest3 = rest2.filter((x) => x !== second).sort((a, b) => score(b) - score(a));
-    return [lead, second, third, cleanup].concat(rest3).filter(Boolean).concat(pit);
+    // classic order: speed/on-base leadoff, on-base 2nd, best hitter 3rd, power cleanup
+    const nonP = players.filter((x) => !x.b.isPitcher);
+    const pit = players.filter((x) => x.b.isPitcher);
+    const ops = (x) => x.b.ops + Math.min(x.b.pa, 600) / 6000;
+    const pow = (x) => x.b.slg + x.b.hrN / 600 + Math.min(x.b.pa, 600) / 6000;
+    const lead = (x) => x.b.obp + 0.3 * Math.min(x.b.attRate || 0, 0.35) + 0.02 * x.b.speed - 0.2 * Math.max(0, x.b.slg - 0.5) + Math.min(x.b.pa, 500) / 10000;
+    const pool = nonP.slice();
+    const take = (f) => { pool.sort((a, b) => f(b) - f(a)); return pool.shift(); };
+    const cleanup = take(pow);
+    // the team's best all-around power bats hit in the middle, not leadoff
+    const middle = pool.slice().sort((a, b) => ops(b) - ops(a)).slice(0, 2).filter((x) => x.b.slg > 0.45);
+    const leadPool = pool.filter((x) => !middle.includes(x));
+    leadPool.sort((a, b) => lead(b) - lead(a));
+    const leadoff = leadPool[0] || take(lead);
+    if (leadoff) pool.splice(pool.indexOf(leadoff), 1);
+    const third = take(ops);
+    const top5 = pool.slice().sort((a, b) => ops(b) - ops(a)).slice(0, 5);
+    const second = top5.sort((a, b) => (b.b.obp + 0.1 * b.b.speed) - (a.b.obp + 0.1 * a.b.speed))[0];
+    const rest = pool.filter((x) => x !== second).sort((a, b) => ops(b) - ops(a));
+    return [leadoff, second, third, cleanup].concat(rest).filter(Boolean).concat(pit);
   }
 
   function buildTeam(ts, lgTable, opts) {
@@ -175,7 +179,7 @@
   }
   function hasDH(y, lg) { return (lg === 'AL' && y >= 1973) || (lg === 'NL' && (y >= 2022 || y === 2020)); }
 
-  function prepareSide(team, useDH, starterId) {
+  function prepareSide(team, useDH, starterId, lineupIds) {
     let filled, used;
     if (team.fixed) {
       filled = {}; used = new Set();
@@ -201,7 +205,18 @@
     } else {
       order.push({ b: sp.bat || pitcherAsBatter(sp, team.env), pos: 0 });
     }
-    const lineup = battingOrder(order);
+    let lineup = battingOrder(order);
+    if (lineupIds && lineupIds.length === 9) {
+      const custom = []; const okDH = useDH ? lineupIds.some((x) => x.pos === 9) && !lineupIds.some((x) => x.pos === 0) : lineupIds.some((x) => x.pos === 0) && !lineupIds.some((x) => x.pos === 9);
+      lineupIds.forEach((x) => {
+        if (x.pos === 0) custom.push({ b: sp.bat || pitcherAsBatter(sp, team.env), pos: 0 });
+        else { const b = team.batters.find((y) => y.id === x.id); if (b) custom.push({ b, pos: x.pos }); }
+      });
+      const posSet = new Set(custom.map((x) => x.pos)); const idSet = new Set(custom.map((x) => x.b.id));
+      if (okDH && custom.length === 9 && posSet.size === 9 && idSet.size === 9) {
+        lineup = custom; used.clear(); custom.forEach((x) => used.add(x.b.id));
+      }
+    }
     const bench = team.batters.filter((b) => !used.has(b.id) && !b.isPitcher && b.pa > 15).sort((a, b) => b.pa - a.pa).slice(0, 8);
     const bullpen = team.pitchers.filter((p) => p !== sp && !rotation.slice(0, 4).includes(p)).sort((a, b) => a.q - b.q);
     const closer = bullpen.slice().sort((a, b) => b.sv - a.sv || a.q - b.q)[0] || null;
@@ -222,7 +237,7 @@
     const useDH = opts.dh != null ? opts.dh : home.dhLeague;
     const env = blendEnv(away.env, home.env);
     const g = {
-      away: prepareSide(away, useDH, opts.awaySP), home: prepareSide(home, useDH, opts.homeSP), env,
+      away: prepareSide(away, useDH, opts.awaySP, opts.awayLineup), home: prepareSide(home, useDH, opts.homeSP, opts.homeLineup), env,
       inning: 1, half: 0, outs: 0, bases: [null, null, null], score: [0, 0], line: [[], []], hits: [0, 0], errs: [0, 0],
       over: false, log: [], userSide: opts.userSide || null, diff: opts.difficulty || 'pro', ghost: home.y >= 2020 && away.y >= 2020,
       box: {}, pbox: {}, lastPlay: null, rulesYear: home.y, maxInn: 25,
@@ -807,7 +822,8 @@
   function longBonus(x, base) { return clamp(Math.log10(Math.max(x, 1) / base), -1, 1.2); }
   function pRank(p) { return (p.ace != null ? p.ace : p.q) - 0.035 * longBonus(p.ip, p.starter ? 180 : 60); }
   function bRank(b) { return b.value * 100 + longBonus(b.pa, 300) * 2; }
-  function dreamPicks(pool, useDH) {
+  function dreamPicks(pool, useDH, hitters) {
+    const benchN = Math.max(3, Math.min(7, (hitters || 13) - 9)); const rpN = 25 - 5 - 9 - benchN;
     const taken = new Set(); const slots = {};
     const order = ['SS', 'C', 'CF', '2B', '3B', 'RF', 'LF', '1B'];
     const minPa = Math.min(400, Math.max(80, (pool.batters.slice().sort((a, b) => b.pa - a.pa)[25] || { pa: 100 }).pa));
@@ -823,12 +839,12 @@
     const rest = pool.batters.filter((b) => !taken.has(b.id) && b.pa >= minPa * 0.6).sort((a, b) => bRank(b) - bRank(a));
     let dh = null;
     if (rest.length) { dh = rest[0].id; taken.add(dh); }
-    pool.batters.filter((b) => !taken.has(b.id) && b.pa >= minPa * 0.5).sort((a, b) => bRank(b) - bRank(a)).slice(0, 4 - benchList.length).forEach((b) => { benchList.push(b.id); taken.add(b.id); });
+    pool.batters.filter((b) => !taken.has(b.id) && b.pa >= minPa * 0.5).sort((a, b) => bRank(b) - bRank(a)).slice(0, benchN - benchList.length).forEach((b) => { benchList.push(b.id); taken.add(b.id); });
     const ipMin = (p) => p.ip >= (p.starter ? 150 : 40);
     const sp = pool.pitchers.filter((p) => p.starter && ipMin(p)).sort((a, b) => pRank(a) - pRank(b)).slice(0, 5);
     const spIds = new Set(sp.map((p) => p.id));
-    let rp = pool.pitchers.filter((p) => !p.starter && !spIds.has(p.id) && ipMin(p)).sort((a, b) => pRank(a) - pRank(b)).slice(0, 7);
-    if (rp.length < 7) rp = rp.concat(pool.pitchers.filter((p) => !spIds.has(p.id) && !rp.includes(p)).sort((a, b) => a.q - b.q).slice(0, 7 - rp.length));
+    let rp = pool.pitchers.filter((p) => !p.starter && !spIds.has(p.id) && ipMin(p)).sort((a, b) => pRank(a) - pRank(b)).slice(0, rpN);
+    if (rp.length < rpN) rp = rp.concat(pool.pitchers.filter((p) => !spIds.has(p.id) && !rp.includes(p)).sort((a, b) => a.q - b.q).slice(0, rpN - rp.length));
     return { slots, dh, bench: benchList, sp: sp.map((p) => p.id), rp: rp.map((p) => p.id) };
   }
   function teamFromDream(pool, picks, meta) {
