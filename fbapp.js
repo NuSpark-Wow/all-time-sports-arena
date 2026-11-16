@@ -87,13 +87,13 @@
           <label class="f" for="dto${i}">To<select id="dto${i}" data-side="${i}" data-dk="to">${yrOpts(sd.to, FIRST, LAST)}</select></label>
           <button class="btn small" data-alltime="${i}" style="align-self:flex-end">All-time</button>
         </div>
-        <div class="teamline"><span class="badge b-gold">${esc(t.name)}</span><span>${n} players${sd.edited ? ' · your edits' : ''}</span></div>
+        <div class="teamline"><b>${esc(t.name)}</b><span>${n} players${sd.edited ? ' · your edits' : ''}</span></div>
         <p class="note" style="margin-top:6px">${stars}</p>
         <div class="inline" style="margin-top:8px"><button class="btn small" data-editroster="${i}">See and edit the roster</button></div></section>`;
     }
     if (!(S.idx.teams[sd.y] || []).some((t) => t.fr === sd.fr)) sd.fr = S.idx.teams[sd.y][0].fr;
     const t = tsFor(sd.y, sd.fr);
-    const badge = t.badge === 'gold' ? '<span class="badge b-gold">Gold · full roster</span>' : t.badge === 'silver' ? '<span class="badge b-silver">Silver · key players</span>' : '<span class="badge b-bronze">Bronze · real results only</span>';
+    const badge = `<span class="note">${t.badge === 'gold' ? 'Full roster' : 'Key players named'}</span>`;
     const who = st.mode === 'play' ? (st.userSide === i ? ' · You coach' : ' · AI coach') : '';
     return `<section class="card side"><h2><span class="dot ${i ? 'h' : 'a'}"></span>${i ? 'Home' : 'Away'}<span class="note" style="text-transform:none;letter-spacing:0;font-family:var(--body);font-weight:500">${who}</span></h2>${kind}
       <div class="row" style="margin-top:10px">
@@ -119,9 +119,9 @@
       <div class="grid sides" style="margin-top:14px">${sideCard(0)}${sideCard(1)}</div>
       <section class="card" style="margin-top:14px"><h3>How accurate is this?</h3>
         <p class="note" style="margin-top:6px">Every team from 1960 to 2025 plays to its real points scored and allowed, so the final scores and win odds rest on real results. In the 1960s the AFL was a separate league and a step below the NFL at first (the NFL won the first two Super Bowls), so early AFL teams are scaled down a little, less each year until they match by 1969.</p>
-        <p class="note" style="margin-top:6px"><b>Gold · full roster:</b> the whole lineup, offensive line included, hand-checked. ${named.join(' · ')}</p>
+        <p class="note" style="margin-top:6px"><b>Full roster:</b> the whole lineup, offensive line included, hand-checked. ${named.join(' · ')}</p>
         <p class="note" style="margin-top:6px"><b>Dream teams:</b> pick a franchise and a span of years (or any team for era all-stars) and get the best 45 players from those seasons, picked by Pro Bowl and All-Pro selections, Hall of Fame careers and each season's stats. Their strength blends how good the players were with how good their real teams were.</p>
-        <p class="note" style="margin-top:6px"><b>Silver · key players (every other team):</b> the starting QB and backup, two running backs, three receivers, two tight ends, six key defenders, the kicker and punter. Starting QBs come from each team's season records. From 1999 on, the other names are picked from that season's stats. Before 1999 they are picked from Pro Bowl and All-Pro selections, Hall of Fame careers and years as a starter, so the stars are right but a depth name can be off. The offensive line plays as a unit.</p></section>
+        <p class="note" style="margin-top:6px"><b>Key players (every other team):</b> the starting QB and backup, two running backs, three receivers, two tight ends, six key defenders, the kicker and punter. Starting QBs come from each team's season records. From 1999 on, the other names are picked from that season's stats. Before 1999 they are picked from Pro Bowl and All-Pro selections, Hall of Fame careers and years as a starter, so the stars are right but a depth name can be off. The offensive line plays as a unit.</p></section>
       <div class="actions"><button class="btn primary" id="fbPre">See the matchup</button><span class="note" id="fbMsg"></span></div>`;
     app.querySelectorAll('[data-set]').forEach((b) => b.onclick = () => { const k = b.dataset.set; let v = b.dataset.v; if (k === 'userSide') v = +v; st[k] = v; renderSetup(); });
     app.querySelectorAll('select[data-k]').forEach((s) => s.onchange = () => { const sd = st.sides[+s.dataset.side]; if (s.dataset.k === 'y') sd.y = +s.value; else sd.fr = s.value; renderSetup(); });
@@ -499,6 +499,7 @@
     $('#deReset').onclick = () => { sd.pick = null; dreamPick(i); renderDreamEdit(); };
   }
   function render() {
+    const hero = document.getElementById('hero'); if (hero) hero.classList.toggle('off', !(S.screen === 'setup' || S.screen === 'dreamEdit'));
     if (S.screen === 'setup') renderSetup(); else if (S.screen === 'dreamEdit') renderDreamEdit(); else if (S.screen === 'pregame') renderPregame(); else renderGame();
     window.scrollTo(0, 0);
   }

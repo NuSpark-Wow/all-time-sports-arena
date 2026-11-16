@@ -65,23 +65,18 @@
       <p class="lede">Coach against the AI, or sit back and watch. Real rosters and real stats decide every play, so the 1927 Yankees hit like the 1927 Yankees.</p>
       <div class="grid sports">
         <button class="card sport ready" data-go="setup">
-          <span class="badge b-gold">Gold · Real stats</span>
           <span class="name">Baseball</span>
           <span class="note">Every MLB team and player, 1871–2025. 3,614 team-seasons, plus dream rosters.</span>
         </button>
         <button class="card sport ready" data-go="football">
-          <span class="badge b-silver">Silver / Bronze · Real results</span>
           <span class="name">Football</span>
-          <span class="note">Every NFL team, 1970–2025. 1,669 team-seasons playing to their real points scored and allowed, with named rosters for iconic teams.</span>
+          <span class="note">Every NFL and AFL team, 1960–2025. 1,901 team-seasons playing to their real points scored and allowed, with named players for every team, plus dream teams.</span>
         </button>
       </div>
       <section class="card guide">
         <h2>How accurate is this?</h2>
-        <dl>
-          <dt><span class="badge b-gold">Gold</span></dt><dd>Full real stats for every player. Baseball 1901–2025.</dd>
-          <dt><span class="badge b-silver">Silver</span></dt><dd>Baseball 1871–1900 (early records are incomplete and the rules differed), and football teams with named rosters: real points scored and allowed, split into units from the real players.</dd>
-          <dt><span class="badge b-bronze">Bronze</span></dt><dd>Football teams whose named rosters haven't arrived yet: real team strength, position labels instead of names.</dd>
-        </dl>
+        <p style="margin-top:8px"><b>Baseball:</b> full real stats for every player, 1901–2025. From 1871 to 1900 the early records are incomplete and the rules differed, so those seasons are a little rougher.</p>
+        <p style="margin-top:6px"><b>Football:</b> every team plays to its real points scored and allowed. 24 iconic teams have their whole hand-checked lineup. Every other team has its key players named: QBs, backs, receivers, tight ends, six key defenders, kicker and punter.</p>
         <p class="note" style="margin-top:12px">Cross-era games are balanced: each player is measured against his own league, then the game is played in a neutral environment. Season replays of real teams land within normal luck of their real records.</p>
       </section>`;
     app.querySelector('[data-go=setup]').onclick = () => { window.__arenaSport = 'baseball'; S.screen = 'setup'; render(); };
@@ -106,13 +101,12 @@
     let body = '';
     if (sd.type === 'real') {
       if (!(S.idx.index[sd.year] || []).some((r) => r[0] === sd.tm)) sd.tm = (S.idx.index[sd.year] || [])[0][0];
-      const b = badgeFor(sd.year);
       body = `
         <div class="row">
           <label class="f" for="yr${i}">Year<select id="yr${i}" data-side="${i}" data-k="year">${yearOptions(sd.year)}</select></label>
           <label class="f" for="tm${i}" style="flex:2 1 220px">Team<select id="tm${i}" data-side="${i}" data-k="tm">${teamOptions(sd.year, sd.tm)}</select></label>
         </div>
-        <div class="teamline"><span class="badge ${b[0]}">${b[1]}</span><span id="spwrap${i}"></span></div>`;
+        <div class="teamline">${sd.year < 1901 ? '<span class="note">Early era: records are incomplete</span>' : ''}<span id="spwrap${i}"></span></div>`;
     } else {
       const d = S.dream[i];
       body = d ? `<p><b>${esc(d.team.label)}</b></p><p class="note">${d.team.batters.length} hitters, ${d.team.pitchers.length} pitchers · ${d.mode === 'peak' ? 'Peak-season ratings' : 'Average ratings across the range'}</p>
@@ -880,6 +874,7 @@
 
   /* ---------------- router ---------------- */
   function render() {
+    const hero = document.getElementById('hero'); if (hero) hero.classList.toggle('off', !(S.screen === 'home' || S.screen === 'setup'));
     if (S.screen === 'home') renderHome();
     else if (S.screen === 'setup') renderSetup();
     else if (S.screen === 'pregame') renderPregame();
