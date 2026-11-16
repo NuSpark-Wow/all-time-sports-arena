@@ -9,7 +9,7 @@
   // calibration from season-replay testing (sim vs real league totals)
   // neutral environment used to rank pitchers (wOBA allowed, 1.0 = league average)
   const QENV = { so: 0.15, bb: 0.085, hbp: 0.007, hr: 0.022, tr: 0.005, db: 0.045, sg: 0.155 };
-  const CAL = { so: 1, bb: 1, hbp: 1, hr: 1, tr: 1, db: 1, sg: 1 };
+  const CAL = { so: 0.985, bb: 1.04, hbp: 1, hr: 0.98, tr: 1.02, db: 1.02, sg: 1.02 };
   const BK = ['G', 'AB', 'H', '2B', '3B', 'HR', 'BB', 'SO', 'HBP', 'SB', 'CS', 'SH', 'SF', 'GIDP', 'R', 'RBI', 'IBB'];
   const PK = ['G', 'GS', 'IPOuts', 'H', 'ER', 'HR', 'BB', 'SO', 'HBP', 'BFP', 'W', 'L', 'SV', 'CG', 'WP'];
 
@@ -78,7 +78,7 @@
     const att = cs != null ? sb + cs : sb * 1.45;
     const speed = clamp(0.35 + 2.2 * (att / onBase) + 6 * (t / Math.max(ab, 1)), 0.2, 1.6);
     let sbPct = cs != null && sb + cs >= 4 ? (sb + 4 * lg.sbPct) / (sb + cs + 4) : clamp(lg.sbPct + (speed - 0.6) * 0.12, 0.45, 0.85);
-    const gidp = s.GIDP != null && pa > 50 ? clamp((s.GIDP + 2) / (pa * 0.11 + 18), 0.4, 1.8) : 1;
+    const gidp = s.GIDP != null && pa > 50 ? clamp((s.GIDP + 3) / (pa * 0.018 + 3), 0.45, 1.8) : 1;
     const obp = pa ? (h + (s.BB || 0) + (s.HBP || 0)) / pa : 0;
     const slg = ab ? (h + d + 2 * t + 3 * hr) / ab : 0;
     return {
@@ -409,9 +409,17 @@
     for (let i = 2; i >= 0; i--) {
       const r = g.bases[i]; if (!r) continue;
       let to = i + n;
-      if (opts.extra && to < 3) {
-        const chance = opts.extra[i] * spd(r);
-        if (R() < chance) to++;
+      if (opts.extra && to < 3 && g.outs < 3) {
+        const chance = Math.min(0.95, opts.extra[i] * spd(r) * (g.outs === 2 ? 1.45 : 1));
+        if (R() < chance) {
+          if (R() < 0.035) {
+            // outfield assist: thrown out taking the extra base
+            g.bases[i] = null; addOut(g, 1, res);
+            res.note = (res.note || '') + ` ${r.ln} tries for ${to + 1 >= 3 ? 'home' : 'third'} — thrown out!`;
+            continue;
+          }
+          to++;
+        }
       }
       g.bases[i] = null;
       if (to >= 3) scoreRun(g, r, opts.noRbi ? null : b, res); else g.bases[to] = r;
@@ -497,6 +505,17 @@
       o.idx++; finish(g, res, before); return res;
     }
 
+    // ---- wild pitch / passed ball with runners on ----
+    let pre = '';
+    if (g.bases.some(Boolean)) {
+      const wp = P.line && P.line.WP != null && P.line.BFP ? (P.line.WP * 1.4 + 1) / (P.line.BFP + 150) : 0.009;
+      if (R() < clamp(wp, 0.003, 0.03)) {
+        const wpRes = { runs: 0, outs: 0 };
+        for (let i = 2; i >= 0; i--) { const rr = g.bases[i]; if (!rr) continue; g.bases[i] = null; if (i === 2) scoreRun(g, rr, null, wpRes); else g.bases[i + 1] = rr; }
+        res.runs += wpRes.runs;
+        pre = (R() < 0.7 ? 'Wild pitch' : 'Passed ball') + ' — ' + (wpRes.runs ? 'a run scores!' : 'the runners move up.') + ' ';
+      }
+    }
     // ---- regular plate appearance ----
     const mods = {};
     if (offCall === 'take') { mods.bb = 1.35; mods.so = 1.2; mods.sg = 0.92; mods.hr = 0.85; mods.db = 0.92; }
@@ -524,6 +543,7 @@
       g.bases[0] = null;
       if (safe) { g.bases[1] = r; bx(g, r, o.si).sb++; res.text = say('so', vars) + ' ' + r.n + ' was running — safe at second.'; }
       else { addOut(g, 1, res); res.text = 'Strike \'em out, throw \'em out! ' + b.n + ' fans and ' + r.n + ' is cut down at second.'; res.crowd = 'cheerDef'; }
+      if (pre) res.text = pre + res.text;
       res.type = 'so'; o.idx++; finish(g, res, before); return res;
     }
     if (hrBreak && (ev === 'sg')) { /* runner goes first to third more often */ }
@@ -553,55 +573,112 @@
       default:
         bipOut(g, b, res, vars, defCall, hrBreak);
     }
+    if (res.note) res.text += res.note;
+    if (pre) res.text = pre + res.text;
     o.idx++;
     finish(g, res, before);
     return res;
   }
 
+  const POSWORD = ['the mound', 'catcher', 'first', 'second', 'third', 'short', 'left', 'center', 'right'];
+  const POSNUM = { 0: '1', 1: '2', 2: '3', 3: '4', 4: '5', 5: '6' };
+  function fielderName(g, pos) {
+    const d = def(g);
+    if (pos === 0) return d.pstate.p.ln;
+    const x = d.lineup.find((y) => y.pos === pos);
+    return x ? x.b.ln : POSWORD[pos];
+  }
+  function pickPos(kind, b) {
+    const lefty = b.b === 'L' || (b.b === 'B' && R() < 0.7);
+    // spray: right-handed hitters pull to the left side, lefties to the right side
+    const go = lefty ? [[0, 0.06], [2, 0.22], [3, 0.3], [5, 0.26], [4, 0.16]] : [[0, 0.06], [2, 0.12], [3, 0.24], [5, 0.31], [4, 0.27]];
+    const fo = lefty ? [[6, 0.25], [7, 0.35], [8, 0.4]] : [[6, 0.4], [7, 0.35], [8, 0.25]];
+    const lo = lefty ? [[3, 0.2], [5, 0.12], [2, 0.12], [4, 0.06], [6, 0.12], [7, 0.18], [8, 0.2]] : [[3, 0.12], [5, 0.2], [2, 0.06], [4, 0.12], [6, 0.2], [7, 0.18], [8, 0.12]];
+    const po = [[1, 0.15], [2, 0.2], [3, 0.2], [4, 0.2], [5, 0.25]];
+    const list = { go, fo, lo, po }[kind];
+    let r = R(); for (const [p, w] of list) { r -= w; if (r <= 0) return p; }
+    return list[0][0];
+  }
   function bipOut(g, b, res, vars, defCall, running) {
     const o = off(g), d = def(g); const bxb = bx(g, b, o.si);
-    // error?
-    if (R() < d.team.errPerBip) {
+    const r = R();
+    const kind = r < 0.47 ? 'go' : r < 0.8 ? 'fo' : r < 0.93 ? 'lo' : 'po';
+    const pos = pickPos(kind, b); const fn = fielderName(g, pos);
+    vars.f = fn + (pos === 0 ? ' on the mound' : ' at ' + POSWORD[pos]);
+    // error (most errors happen on ground balls)
+    if (R() < d.team.errPerBip * (kind === 'go' ? 1.45 : kind === 'po' ? 0.3 : 0.6)) {
       bxb.ab++; g.errs[d.si]++; b.reached = 'E';
-      vars.f = pick(['the shortstop', 'the third baseman', 'the second baseman', 'the first baseman', 'the left fielder']);
+      vars.f = fn;
       advance(g, 1, b, res, { extra: [0.3, 0.5, 0], noRbi: true }); res.text = say('err', vars); res.type = 'err'; res.crowd = 'boo';
       return;
     }
-    const r = R();
-    const kind = r < 0.47 ? 'go' : r < 0.8 ? 'fo' : r < 0.93 ? 'lo' : 'po';
-    vars.f = pick(FIELDER[kind]);
     bxb.ab++;
-    // double play
-    if (kind === 'go' && g.bases[0] && g.outs < 2 && !running) {
-      const dpP = clamp(0.4 * b.gidp / Math.sqrt(spd(b)), 0.1, 0.75) * (defCall === 'infieldin' ? 0.8 : 1);
-      if (R() < dpP) {
-        g.bases[0] = null; addOut(g, 2, res);
-        if (g.outs < 3) { // other runners advance
-          if (g.bases[2]) { const r3 = g.bases[2]; g.bases[2] = null; scoreRun(g, r3, null, res); }
-          if (g.bases[1]) { g.bases[2] = g.bases[1]; g.bases[1] = null; }
-        }
-        res.text = say('dp', vars); res.type = 'dp'; res.crowd = 'cheerDef';
-        return;
-      }
-    }
-    addOut(g, 1, res);
-    res.type = 'out';
-    res.text = say(kind, vars);
-    if (kind === 'go' && R() < 0.1) res.close = 'first';
-    if (g.outs >= 3) return;
     if (kind === 'go') {
-      // runners advance on grounders (forced or not); infield in holds runner on third
+      // double play / fielder's choice with a force at second
+      if (g.bases[0] && g.outs < 2 && !running) {
+        const base = ({ 5: 0.56, 3: 0.56, 4: 0.47, 0: 0.5, 2: 0.36 }[pos] || 0.45) * 0.8;
+        const dpP = clamp(base * b.gidp / Math.sqrt(spd(b)), 0.08, 0.8) * (defCall === 'infieldin' ? 0.85 : 1);
+        if (R() < dpP) {
+          const notation = { 5: '6-4-3', 3: '4-6-3', 4: '5-4-3', 0: '1-6-3', 2: '3-6-3' }[pos] || '6-4-3';
+          const r1 = g.bases[0]; g.bases[0] = null; addOut(g, 2, res);
+          let scored = false;
+          if (g.outs < 3) {
+            if (g.bases[2]) { const r3 = g.bases[2]; g.bases[2] = null; scoreRun(g, r3, null, res); scored = true; }
+            if (g.bases[1]) { g.bases[2] = g.bases[1]; g.bases[1] = null; }
+          }
+          res.text = `${b.n} grounds to ${vars.f} — ${notation} double play!` + (scored ? ' A run scores on the play.' : '');
+          res.type = 'dp'; res.crowd = 'cheerDef'; void r1;
+          return;
+        }
+        if (R() < 0.25) {
+          // fielder's choice: lead forced runner is out, batter reaches first
+          let k = 0; while (k < 3 && g.bases[k]) k++;
+          const outRunner = g.bases[k - 1];
+          const where = ['second', 'third', 'the plate'][k - 1];
+          g.bases[k - 1] = null; addOut(g, 1, res);
+          if (g.outs < 3) {
+            if (k < 3 && g.bases[2] && R() < 0.5) { const r3 = g.bases[2]; g.bases[2] = null; scoreRun(g, r3, b, res); }
+            for (let i = k - 2; i >= 0; i--) { g.bases[i + 1] = g.bases[i]; g.bases[i] = null; }
+          }
+          g.bases[0] = b; b.reached = 'FC';
+          res.text = `${b.n} grounds to ${vars.f}. Fielder's choice — ${outRunner.n} is forced at ${where}, ${b.ln} safe at first.`;
+          res.type = 'out';
+          return;
+        }
+      }
+      addOut(g, 1, res);
+      res.type = 'out'; res.text = say('go', vars);
+      if (R() < 0.1) res.close = 'first';
+      if (g.outs >= 3) return;
       const holdThird = defCall === 'infieldin';
       if (g.bases[2] && !holdThird && R() < 0.55) { const r3 = g.bases[2]; g.bases[2] = null; scoreRun(g, r3, b, res); res.text += ' Run scores.'; }
       else if (g.bases[2] && holdThird && R() < 0.2) { const r3 = g.bases[2]; g.bases[2] = null; scoreRun(g, r3, b, res); res.text += ' He beats the throw home!'; }
-      if (g.bases[1] && !g.bases[2] && R() < 0.6) { g.bases[2] = g.bases[1]; g.bases[1] = null; }
+      const rightSide = pos === 2 || pos === 3;
+      if (g.bases[1] && !g.bases[2] && R() < (rightSide ? 0.85 : 0.45)) { g.bases[2] = g.bases[1]; g.bases[1] = null; if (rightSide) res.text += ' The runner moves to third.'; }
       if (g.bases[0] && !g.bases[1]) { g.bases[1] = g.bases[0]; g.bases[0] = null; }
-    } else if (kind === 'fo') {
-      if (g.bases[2] && R() < clamp(0.62 * Math.sqrt(spd(g.bases[2])), 0.35, 0.9)) { const r3 = g.bases[2]; g.bases[2] = null; scoreRun(g, r3, b, res); bxb.ab--; res.text += ' Sacrifice fly — the run scores!'; }
-      if (g.bases[1] && !g.bases[2] && R() < 0.25) { g.bases[2] = g.bases[1]; g.bases[1] = null; }
-    } else if (running && kind === 'lo' && g.bases[0]) {
-      g.bases[0] = null; addOut(g, 1, res); res.text += ' Doubled off first!'; res.type = 'dp';
-    } else if (running && g.bases[0] && !g.bases[1]) { g.bases[1] = g.bases[0]; g.bases[0] = null; }
+      return;
+    }
+    addOut(g, 1, res);
+    res.type = 'out'; res.text = say(kind, vars);
+    if (g.outs >= 3) return;
+    if (kind === 'fo') {
+      if (g.bases[2]) {
+        const depth = { 7: 0.72, 8: 0.66, 6: 0.6 }[pos] || 0.62;
+        if (R() < clamp(depth * Math.sqrt(spd(g.bases[2])), 0.35, 0.92)) {
+          const r3 = g.bases[2]; g.bases[2] = null;
+          if (R() < 0.05) { addOut(g, 1, res); res.text += ` ${r3.ln} tags and tries to score — ${fn} throws him out at the plate! Double play!`; res.type = 'dp'; res.crowd = 'cheerDef'; return; }
+          scoreRun(g, r3, b, res); bxb.ab--; res.text += ' Sacrifice fly — the run scores!';
+        }
+      }
+      if (g.bases[1] && !g.bases[2] && R() < ({ 8: 0.45, 7: 0.3, 6: 0.15 }[pos] || 0.25) * Math.sqrt(spd(g.bases[1]))) { g.bases[2] = g.bases[1]; g.bases[1] = null; res.text += ' The runner tags up and takes third.'; }
+    } else if (kind === 'lo') {
+      const lead = [2, 1, 0].find((i) => g.bases[i]);
+      const dblP = running && g.bases[0] ? 0.6 : 0.05;
+      if (lead != null && R() < dblP) {
+        const i = running && g.bases[0] ? 0 : lead; const rr = g.bases[i]; g.bases[i] = null; addOut(g, 1, res);
+        res.text += ` ${rr.ln} is doubled off ${['first', 'second', 'third'][i]}!`; res.type = 'dp'; res.crowd = 'cheerDef';
+      } else if (running && g.bases[0] && !g.bases[1]) { g.bases[1] = g.bases[0]; g.bases[0] = null; }
+    }
   }
 
   function buntPlay(g, call, b, res, vars) {
