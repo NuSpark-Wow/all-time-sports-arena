@@ -16,13 +16,15 @@
 
   async function load() {
     if (S.idx) return;
-    const [a, b] = await Promise.all([fetch('football-index.json').then((r) => r.json()), fetch('football-rosters.json').then((r) => r.json())]);
-    S.idx = a; S.rosters = b;
+    const [a, b, c] = await Promise.all(['football-index.json', 'football-rosters.json', 'football-light.json'].map((f) => fetch(f).then((r) => r.json())));
+    S.idx = a; S.rosters = b; S.light = c;
   }
   function tsFor(y, fr) {
     const t = (S.idx.teams[y] || []).find((x) => x.fr === fr); if (!t) return null;
-    const key = y + fr; const roster = S.rosters[key];
-    return Object.assign({ y, key, roster: roster || null, badge: roster ? 'silver' : 'bronze' }, t);
+    const key = y + fr; const full = S.rosters[key]; const lt = S.light && S.light[key];
+    if (full) return Object.assign({ y, key, roster: full, badge: 'gold' }, t);
+    if (lt) return Object.assign({ y, key, light: true, badge: 'silver', units: lt.u, roster: lt.r.map(([pos, n, r, star]) => ({ pos, n, ln: n.split(' ').filter((w) => !/^(Jr\.?|Sr\.?|II|III|IV)$/.test(w)).pop(), r, star: !!star })) }, t);
+    return Object.assign({ y, key, roster: null, badge: 'bronze' }, t);
   }
   function rec(t) { return `${t.W}–${t.L}${t.T ? '–' + t.T : ''}`; }
   function rulesFor() { const r = S.setup.rules; return r === 'auto' ? F.rulesForYear(S.setup.sides[1].y) : r; }
@@ -31,13 +33,13 @@
   /* ---------------- setup ---------------- */
   function yearOpts(sel) { let h = ''; const ys = Object.keys(S.idx.teams).map(Number).sort((a, b) => b - a); ys.forEach((y) => { h += `<option value="${y}"${y === sel ? ' selected' : ''}>${y}</option>`; }); return h; }
   function teamOpts(y, sel) {
-    return (S.idx.teams[y] || []).map((t) => { const named = !!S.rosters[y + t.fr]; return `<option value="${t.fr}"${t.fr === sel ? ' selected' : ''}>${esc(t.name)} (${rec(t)})${named ? ' · named roster' : ''}</option>`; }).join('');
+    return (S.idx.teams[y] || []).map((t) => { const full = !!S.rosters[y + t.fr]; return `<option value="${t.fr}"${t.fr === sel ? ' selected' : ''}>${esc(t.name)} (${rec(t)})${full ? ' · full roster' : ''}</option>`; }).join('');
   }
   function sideCard(i) {
     const sd = S.setup.sides[i]; const st = S.setup;
     if (!(S.idx.teams[sd.y] || []).some((t) => t.fr === sd.fr)) sd.fr = S.idx.teams[sd.y][0].fr;
     const t = tsFor(sd.y, sd.fr);
-    const badge = t.badge === 'silver' ? '<span class="badge b-silver">Silver · named roster</span>' : '<span class="badge b-bronze">Bronze · real results, roster coming</span>';
+    const badge = t.badge === 'gold' ? '<span class="badge b-gold">Gold · full roster</span>' : t.badge === 'silver' ? '<span class="badge b-silver">Silver · key players</span>' : '<span class="badge b-bronze">Bronze · real results only</span>';
     const who = st.mode === 'play' ? (st.userSide === i ? ' · You coach' : ' · AI coach') : '';
     return `<section class="card side"><h2><span class="dot ${i ? 'h' : 'a'}"></span>${i ? 'Home' : 'Away'}<span class="note" style="text-transform:none;letter-spacing:0;font-family:var(--body);font-weight:500">${who}</span></h2>
       <div class="row" style="margin-top:10px">
@@ -62,8 +64,9 @@
         <p class="note" style="margin-top:6px">${rulesNote(rulesFor())}</p></div></div>
       <div class="grid sides" style="margin-top:14px">${sideCard(0)}${sideCard(1)}</div>
       <section class="card" style="margin-top:14px"><h3>How accurate is this?</h3>
-        <p class="note" style="margin-top:6px">Every team from 1970 to 2025 plays to its real points scored and allowed. Teams with a <b>named roster</b> (Silver) also split that strength into passing, rushing, pass rush and coverage from their real players, and their stars get the credit. Other teams (Bronze) play with real team strength and position labels until their rosters arrive.</p>
-        <p class="note" style="margin-top:6px"><b>Named rosters so far:</b> ${named.join(' · ')}</p></section>
+        <p class="note" style="margin-top:6px">Every team from 1970 to 2025 plays to its real points scored and allowed, so the final scores and win odds rest on real results.</p>
+        <p class="note" style="margin-top:6px"><b>Gold · full roster:</b> the whole lineup, offensive line included, hand-checked. ${named.join(' · ')}</p>
+        <p class="note" style="margin-top:6px"><b>Silver · key players (every other team):</b> the starting QB and backup, two running backs, three receivers, two tight ends, six key defenders, the kicker and punter. Starting QBs come from each team's season records. From 1999 on, the other names are picked from that season's stats. Before 1999 they are picked from Pro Bowl and All-Pro selections, Hall of Fame careers and years as a starter, so the stars are right but a depth name can be off. The offensive line plays as a unit.</p></section>
       <div class="actions"><button class="btn primary" id="fbPre">See the matchup</button><span class="note" id="fbMsg"></span></div>`;
     app.querySelectorAll('[data-set]').forEach((b) => b.onclick = () => { const k = b.dataset.set; let v = b.dataset.v; if (k === 'userSide') v = +v; st[k] = v; renderSetup(); });
     app.querySelectorAll('select[data-k]').forEach((s) => s.onchange = () => { const sd = st.sides[+s.dataset.side]; if (s.dataset.k === 'y') sd.y = +s.value; else sd.fr = s.value; renderSetup(); });
@@ -90,7 +93,7 @@
     const [A, H] = S.teams; const rules = rulesFor();
     const row = (lbl, a, b, hi, fmt) => { const wa = hi ? a > b : a < b, wb = hi ? b > a : b < a; return `<div class="l${wa ? ' win' : ''}">${fmt(a)}</div><div class="lbl">${lbl}</div><div class="r${wb ? ' win' : ''}">${fmt(b)}</div>`; };
     const g = (x) => String(grade(x)); const id = (x) => x;
-    const stars = (t) => t.roster.filter((p) => p.star && !p.generic).sort((a, b) => b.r - a.r).slice(0, 7).map((p) => `${p.pos} ${esc(p.n)}`).join(', ') || 'Roster coming soon. This team plays with its real points scored and allowed.';
+    const stars = (t) => t.roster.filter((p) => p.star && !p.generic).sort((a, b) => b.r - a.r).slice(0, 7).map((p) => `${p.pos} ${esc(p.n)}`).join(', ') || 'No Pro Bowl-level stars this season. The team plays to its real points scored and allowed.';
     app.innerHTML = `
       <h2>Tale of the tape</h2><p class="note" style="margin-top:4px">${F.RULES[rules].label} rules${Math.abs(A.y - H.y) >= 10 ? ' · each team rated against its own era' : ''}</p>
       <div class="card" style="margin-top:12px"><div class="tape">
@@ -105,7 +108,7 @@
         ${row('Run defense', grade(A.def.run), grade(H.def.run), true, id)}
         ${row('Pass rush', grade(A.def.rush), grade(H.def.rush), true, id)}
         ${row('Takeaways', grade(A.def.take), grade(H.def.take), true, id)}
-      </div><p class="note" style="margin-top:8px">Unit grades run 1–99, with 50 as league average for that season. ${A.named && H.named ? 'Both teams have named rosters.' : 'Bronze teams split their strength evenly until their rosters arrive.'}</p></div>
+      </div><p class="note" style="margin-top:8px">Unit grades run 1–99, with 50 as league average for that season. ${A.light || H.light ? 'Key-player teams rate their offensive line as a unit.' : ''}</p></div>
       <div class="grid cols2" style="margin-top:14px">
         <section class="card"><h3 style="color:var(--away)">Stars</h3><p style="margin-top:6px">${stars(A)}</p></section>
         <section class="card"><h3 style="color:var(--home)">Stars</h3><p style="margin-top:6px">${stars(H)}</p></section>
@@ -132,7 +135,7 @@
   function drawLineups() {
     const wrap = $('#fbLineups'); if (!wrap) return;
     wrap.innerHTML = S.teams.map((t, i) => {
-      const by = (pos) => t.roster.filter((p) => p.pos === pos).sort((a, b) => b.r - a.r);
+      const by = (pos) => t.roster.filter((p) => p.pos === pos && !p.generic).sort((a, b) => b.r - a.r);
       const mine = S.setup.mode === 'play' && S.setup.userSide === i;
       const rows = SKILL.map(([slot, pos, k]) => {
         const list = pos === 'WR' ? by('WR').concat(by('TE'), by('RB')) : by(pos);
@@ -140,12 +143,12 @@
         if (!t.named) return `<tr><td>${slot}</td><td>${esc(def || slot)}</td></tr>`;
         return `<tr><td>${slot}</td><td><select data-fbst="${i}" data-slot="${slot}" aria-label="${slot}" style="padding:5px">${list.map((p) => `<option value="${esc(p.n)}"${p.n === def ? ' selected' : ''}>${esc(p.n)} · ${p.pos} ${p.r}${p.star ? ' ★' : ''}</option>`).join('')}</select></td></tr>`;
       }).join('');
-      const defense = ['DL', 'LB', 'CB', 'S'].map((pos) => by(pos).slice(0, pos === 'DL' || pos === 'LB' ? 4 : 2).map((p) => esc(p.n) + (p.star ? ' ★' : '')).join(', ')).join(' · ');
+      const defense = ['DL', 'LB', 'CB', 'S'].map((pos) => by(pos).filter((p) => !p.generic).slice(0, pos === 'DL' || pos === 'LB' ? 4 : 2).map((p) => esc(p.n) + (p.star ? ' ★' : '')).join(', ')).filter(Boolean).join(' · ');
       return `<section class="card"><h3 style="color:var(${i ? '--home' : '--away'})">${mine ? 'Your starters' : S.setup.mode === 'play' ? 'AI coach\'s starters' : 'Starters'}</h3>
         ${t.named ? '<p class="note" style="margin-top:4px">Review the skill-position starters and change any of them. The coach uses your version.</p>' : ''}
         <table class="box"><tbody>${rows}</tbody></table>
-        <p class="note" style="margin-top:8px"><b>Offensive line:</b> ${by('OL').map((p) => esc(p.n) + (p.star ? ' ★' : '')).join(', ')}</p>
-        <p class="note"><b>Defense:</b> ${defense}</p></section>`;
+        <p class="note" style="margin-top:8px"><b>Offensive line:</b> ${t.light ? 'rated as a unit' : by('OL').map((p) => esc(p.n) + (p.star ? ' ★' : '')).join(', ')}</p>
+        <p class="note"><b>${t.light ? 'Key defenders' : 'Defense'}:</b> ${defense}</p></section>`;
     }).join('');
     wrap.querySelectorAll('[data-fbst]').forEach((s) => s.onchange = () => { S.starters[+s.dataset.fbst][s.dataset.slot] = s.value; });
   }
@@ -165,7 +168,7 @@
     const st = S.setup;
     S.game = F.newGame(S.teams[0], S.teams[1], { rules: rulesFor(), userSide: st.mode === 'play' ? st.userSide : null, difficulty: st.diff, lgppg: lgppg() });
     applyStarters(S.game);
-    S.calls = { off: 'inside', def: 'base', twoPt: false, onside: false }; S.tab = 'call'; S.lastRes = null; S.chatter = null;
+    S.calls = { off: 'inside', def: 'base', twoPt: false, onside: false }; S.subSlot = 'QB'; S.tab = 'call'; S.lastRes = null; S.chatter = null;
     S.screen = 'game'; render();
     if (st.mode === 'watch') startAuto();
   }
@@ -281,18 +284,36 @@
         <button class="opt" data-trick="hbpass" ${g.tricks[u] > 0 ? '' : 'disabled'}>Halfback pass<small>The running back throws it</small></button>
         <button class="opt" data-trick="fakepunt" ${g.tricks[u] > 0 && g.down === 4 ? '' : 'disabled'}>Fake punt<small>4th down only</small></button></div></div>`;
       if (r.twoPt) h += `<div class="card"><label class="inline" style="gap:10px"><input type="checkbox" id="twoPt" ${S.calls.twoPt ? 'checked' : ''}> Go for two after your next touchdown</label><p class="note" style="margin-top:6px">Two-point tries succeed about 47% of the time.</p></div>`;
-      const t = g.teams[u]; if (t.named && t.by('QB').length > 1) h += `<div class="card"><h3>Quarterback</h3><div class="inline" style="margin-top:8px"><button class="btn small" id="qbGo">Switch QB</button><span class="note">Now: ${esc(g.starters[u].QB.n)}</span></div></div>`;
     }
+    h += subsCard(g, u);
     const lp = g.lastPlay;
     if ((g.rules === 'twopoint' || g.rules === 'modern') && lp && lp.close && !lp.challenged && g.challenges[u] > 0) h += `<div class="card"><h3>Replay challenge · ${g.challenges[u]} left</h3><div class="inline" style="margin-top:8px"><button class="btn small" id="chGo">Challenge the last call</button></div></div>`;
     else if (g.rules === 'twopoint' || g.rules === 'modern') h += `<p class="note">Challenges: available right after a close call (${g.challenges[u]} left).</p>`;
     h += '</div>'; p.innerHTML = h;
     const bind = (id, fn) => { const el = $('#' + id); if (el) el.onclick = fn; };
     bind('toGo', () => { if (F.timeout(g, u)) { S.lastRes = { text: `Timeout, ${g.teams[u].short}.` }; update(); } });
-    bind('qbGo', () => { const q = F.changeQB(g, u); if (q) { S.lastRes = { text: `${q.n} takes over at quarterback.` }; update(); } });
+    const sg = $('#subGo'); if (sg) sg.onclick = () => {
+      const slot = $('#subSlot').value; const nm = $('#subIn').value; const r = F.subPlayer(g, u, slot, nm);
+      if (r) { S.lastRes = { text: `Substitution: ${r.inP.n} in${r.outP ? ' for ' + r.outP.n : ''} (${SLOTNAME[slot]}).` }; update(); }
+    };
+    const ss = $('#subSlot'); if (ss) ss.onchange = () => { S.subSlot = ss.value; coach(p); };
     bind('chGo', () => { const c = F.challenge(g, u); if (c) { S.lastRes = { text: c.text }; SND.play(c.overturned ? 'cheer' : 'boo'); update(); } });
     const tp = $('#twoPt'); if (tp) tp.onchange = () => { S.calls.twoPt = tp.checked; };
     p.querySelectorAll('[data-trick]').forEach((b) => b.onclick = () => doStep({ off: b.dataset.trick }));
+  }
+  const SLOTNAME = { QB: 'quarterback', RB1: 'lead back', RB2: 'second back', WR1: 'WR1', WR2: 'WR2', WR3: 'WR3', TE: 'tight end' };
+  function subsCard(g, u) {
+    const t = g.teams[u]; if (!t.named) return '';
+    const st = g.starters[u]; const slot = S.subSlot || 'QB';
+    const cur = { QB: st.QB, RB1: st.RB[0], RB2: st.RB[1], WR1: st.WR[0], WR2: st.WR[1], WR3: st.WR[2], TE: st.TE };
+    const pool = slot === 'QB' ? ['QB'] : slot[0] === 'R' ? ['RB'] : slot === 'TE' ? ['TE'] : ['WR', 'TE', 'RB'];
+    const bench = t.roster.filter((p) => !p.generic && pool.includes(p.pos) && p !== cur[slot]).sort((a, b) => pool.indexOf(a.pos) - pool.indexOf(b.pos) || b.r - a.r);
+    const slotOpts = Object.keys(SLOTNAME).map((k) => `<option value="${k}"${k === slot ? ' selected' : ''}>${SLOTNAME[k]}: ${esc(cur[k] ? cur[k].n : '—')}</option>`).join('');
+    const inOpts = bench.map((p) => `<option value="${esc(p.n)}">${esc(p.n)} · ${p.pos} ${p.r}${p.star ? ' ★' : ''}</option>`).join('');
+    return `<div class="card"><h3>Substitutions</h3>
+      <div class="row" style="margin-top:8px"><label class="f" for="subSlot">Take out<select id="subSlot">${slotOpts}</select></label>
+      <label class="f" for="subIn">Put in<select id="subIn">${inOpts || '<option value="">Nobody on the bench</option>'}</select></label></div>
+      <div class="inline" style="margin-top:8px"><button class="btn small" id="subGo" ${inOpts ? '' : 'disabled'}>Make the change</button><span class="note">The new player gets the carries, targets and credit. His rating moves the unit up or down.</span></div></div>`;
   }
   function boxHTML() {
     const g = S.game;
@@ -312,8 +333,8 @@
     return h;
   }
   function rosterHTML() {
-    return S.teams.map((t, i) => `<h3 style="color:var(${i ? '--home' : '--away'});margin-top:${i ? 14 : 0}px">${t.y} ${esc(t.name)} ${t.named ? '' : '· roster coming soon'}</h3>
-      <table class="box"><thead><tr><th>Player</th><th>Pos</th><th>Rating</th></tr></thead><tbody>${t.roster.map((p) => `<tr><td>${esc(p.n)}${p.star ? ' ★' : ''}</td><td>${p.pos}</td><td>${p.generic ? '—' : p.r}</td></tr>`).join('')}</tbody></table>`).join('');
+    return S.teams.map((t, i) => `<h3 style="color:var(${i ? '--home' : '--away'});margin-top:${i ? 14 : 0}px">${t.y} ${esc(t.name)} ${t.named ? (t.light ? '· key players' : '· full roster') : '· real results only'}</h3>
+      <table class="box"><thead><tr><th>Player</th><th>Pos</th><th>Rating</th></tr></thead><tbody>${t.roster.filter((p) => !(t.light && p.generic)).map((p) => `<tr><td>${esc(p.n)}${p.star ? ' ★' : ''}</td><td>${p.pos}</td><td>${p.generic ? '—' : p.r}</td></tr>`).join('')}</tbody></table>`).join('');
   }
   function finalHTML() {
     const g = S.game; const [A, H] = g.teams; const w = g.winner;

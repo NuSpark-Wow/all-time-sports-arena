@@ -22,7 +22,9 @@
   const CAL = { classic: 0.74, passing: 0.74, twopoint: 0.74, modern: 0.74 };
   const ERA_PPG = { classic: 19.0, passing: 20.3, twopoint: 20.8, modern: 22.6 };
   const KERA = { classic: 0.95, passing: 1.0, twopoint: 1.08, modern: 1.16 };
-  let K = 0.62; // strength of team-quality effects (set by calibration)
+  let K = 0.62;
+  let LIGHT_NORM = +(typeof process !== 'undefined' && process.env && process.env.LN) || 1;
+  let LIGHT_TRUST = +(typeof process !== 'undefined' && process.env && process.env.LT) || 0.5; // strength of team-quality effects (set by calibration)
 
   /* ---------- roster / team ---------- */
   const SLOTS = ['QB', 'RB', 'WR', 'TE', 'OL', 'DL', 'LB', 'CB', 'S', 'K', 'P'];
@@ -36,17 +38,23 @@
 
   // split a team's real offense/defense strength into units using its roster (stars count extra)
   function unitsFromRoster(roster) {
+    roster = roster.filter((p) => !p.generic);
     const val = (p) => p.r + (p.star ? 4 : 0);
     const top = (pos, n) => roster.filter((p) => p.pos === pos).map(val).sort((a, b) => b - a).slice(0, n);
-    const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 72);
-    const QB = avg(top('QB', 1)), RB = avg(top('RB', 1)), WR = top('WR', 3), TE = avg(top('TE', 1)), OL = avg(top('OL', 5));
-    const DLs = top('DL', 4), LBs = top('LB', 4), CB = avg(top('CB', 2)), S = avg(top('S', 2));
-    const wr = WR.length ? WR[0] * 0.5 + (WR[1] || 70) * 0.3 + (WR[2] || 68) * 0.2 : 72;
-    const front = avg(DLs.concat(LBs).sort((a, b) => b - a).slice(0, 7));
-    const rushers = avg(DLs.concat(LBs).sort((a, b) => b - a).slice(0, 2));
+    const mean = (a, d) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : d);
+    // light rosters name only key players: a missing unit plays at that side's average, so it neither helps nor hurts
+    const offMean = mean(roster.filter((p) => ['QB', 'RB', 'WR', 'TE'].includes(p.pos)).map(val), 72);
+    const defMean = mean(roster.filter((p) => ['DL', 'LB', 'CB', 'S'].includes(p.pos)).map(val), 72);
+    const QB = mean(top('QB', 1), offMean), RB = mean(top('RB', 1), offMean), WR = top('WR', 3), TE = mean(top('TE', 1), offMean), OL = mean(top('OL', 5), offMean);
+    const DLs = top('DL', 4), LBs = top('LB', 4), CB = mean(top('CB', 2), defMean), S = mean(top('S', 2), defMean);
+    const wr = WR.length ? WR[0] * 0.5 + (WR[1] || offMean - 2) * 0.3 + (WR[2] || offMean - 4) * 0.2 : offMean;
+    const fr = DLs.concat(LBs).sort((a, b) => b - a);
+    const front = fr.length >= 4 ? mean(fr.slice(0, 7), defMean) : mean(fr.concat(Array(4 - fr.length).fill(defMean)), defMean);
+    const rushers = mean(fr.slice(0, 2), defMean);
+    const LBm = mean(LBs, defMean);
     const raw = {
       pass: QB * 0.5 + wr * 0.3 + TE * 0.08 + OL * 0.12, run: RB * 0.5 + OL * 0.38 + TE * 0.12, prot: OL * 0.85 + QB * 0.15, sec: QB * 0.4 + RB * 0.3 + OL * 0.3,
-      pdef: CB * 0.5 + S * 0.32 + avg(LBs) * 0.18, rdef: front * 0.75 + S * 0.25, rush: rushers * 0.7 + front * 0.3, take: CB * 0.35 + S * 0.35 + rushers * 0.3,
+      pdef: CB * 0.5 + S * 0.32 + LBm * 0.18, rdef: front * 0.75 + S * 0.25, rush: rushers * 0.7 + front * 0.3, take: CB * 0.35 + S * 0.35 + rushers * 0.3,
     };
     const spread = 18; const out = {};
     const om = (raw.pass + raw.run + raw.prot + raw.sec) / 4, dm = (raw.pdef + raw.rdef + raw.rush + raw.take) / 4;
@@ -56,13 +64,33 @@
     out.k = kick ? 1 + (val(kick) - 80) / 100 : 1; out.p = punter ? 1 + (val(punter) - 80) / 100 : 1; out.ret = 1;
     return out;
   }
+  // light rosters: unnamed spots get position labels so every play still has a player to credit
+  const NEED = { QB: 1, RB: 2, WR: 3, TE: 1, OL: 5, DL: 4, LB: 3, CB: 3, S: 2, K: 1, P: 1 };
+  function fillRoster(roster, nick) {
+    const out = roster.slice();
+    Object.keys(NEED).forEach((pos) => {
+      const have = out.filter((p) => p.pos === pos).length;
+      for (let i = have; i < NEED[pos]; i++) {
+        const lbl = GENERIC[pos][i] || pos;
+        out.push({ pos, n: (nick ? nick + ' ' : '') + lbl, ln: lbl, r: 66, star: false, generic: true });
+      }
+    });
+    return out;
+  }
   // unit grades: 1.0 = league average; built from points, split by roster when named
   function buildTeam(ts, opts) {
     opts = opts || {};
-    const roster = ts.roster && ts.roster.length ? ts.roster.map((p) => Object.assign({}, p)) : genericRoster();
     const named = !!(ts.roster && ts.roster.length);
+    let roster = named ? ts.roster.map((p) => Object.assign({}, p)) : genericRoster();
+    let u = ts.units || (named ? unitsFromRoster(roster) : {});
+    // key-player rosters are a partial picture: trust their unit split less
+    if (named && ts.light && !ts.units) { const a = LIGHT_TRUST; u = Object.assign({}, u); ['pass', 'run', 'prot', 'sec', 'pdef', 'rdef', 'rush', 'take'].forEach((k) => { u[k] = Math.pow(u[k], a); });
+      // a coach leans on his best unit and attacks the other side's weakest, so even a balanced split adds points: take that back out
+      const am = (ks) => ks.reduce((x, k) => x + u[k], 0) / ks.length, hm = (ks) => ks.length / ks.reduce((x, k) => x + 1 / u[k], 0);
+      const oa = am(['pass', 'run', 'prot', 'sec']), dh = hm(['pdef', 'rdef', 'rush', 'take']);
+      ['pass', 'run', 'prot', 'sec'].forEach((k) => { u[k] /= Math.pow(oa, LIGHT_NORM); }); ['pdef', 'rdef', 'rush', 'take'].forEach((k) => { u[k] /= Math.pow(dh, LIGHT_NORM); }); }
+    if (named && ts.light) roster = fillRoster(roster, ts.nick);
     const O = ts.O || 1, D = ts.D || 1; // points scored / allowed vs league (D < 1 = good defense)
-    const u = ts.units || (named ? unitsFromRoster(roster) : {});
     // offense units multiply to O, defense units multiply to 1/D
     const off = { pass: O * (u.pass || 1), run: O * (u.run || 1), prot: O * (u.prot || 1), sec: O * (u.sec || 1) };
     const def = { pass: (1 / D) * (u.pdef || 1), run: (1 / D) * (u.rdef || 1), rush: (1 / D) * (u.rush || 1), take: (1 / D) * (u.take || 1) };
@@ -71,7 +99,7 @@
     return {
       key: ts.key || (ts.y + ts.fr), y: ts.y, fr: ts.fr, name: ts.name, short: ts.nick || ts.name, city: ts.city,
       W: ts.W, L: ts.L, T: ts.T, PF: ts.PF, PA: ts.PA, G: ts.G, O, D, off, def, st, roster, named, by,
-      badge: ts.badge || (named ? 'silver' : 'bronze'), custom: !!opts.custom, label: opts.label || (ts.y + ' ' + ts.name),
+      badge: ts.badge || (named ? 'silver' : 'bronze'), light: !!ts.light, custom: !!opts.custom, label: opts.label || (ts.y + ' ' + ts.name),
       notes: ts.notes || '',
     };
   }
@@ -220,7 +248,7 @@
     if (dc === 'blitz' && oc !== 'draw') { big *= 1.5; mean -= 0.3; }
     if (dc === 'prevent') { mean += 1.4; }
     const rb = oc === 'sneak' ? so.QB : (R() < 0.68 ? so.RB[0] : so.RB[1] || so.RB[0]);
-    if (rb && rb.star) { mean += 0.35; big *= 1.3; }
+    // team strength already counts its stars (it comes from real points), so a star changes who makes the play, not how many points
     let yds;
     if (R() < big) yds = Math.round(10 + Math.pow(R(), 1.7) * 60);
     else yds = Math.round(mean + norm() * sd0);
@@ -273,7 +301,6 @@
     const qb = oc === 'hbpass' ? so.RB[0] : so.QB; const qbn = qb ? qb.n : 'QB';
     const qp = q_(o.off.pass, d.def.pass), qs = q_(o.off.prot, d.def.rush);
     let comp = g.R.comp + 0.11 * qp; let yMult = Math.exp(0.55 * qp) * CAL[g.rules] * g.env; let intR = g.R.int * Math.exp(-1.4 * qp) * Math.exp(-0.5 * q_(o.off.sec, d.def.take)); let sack = g.R.sack * Math.exp(-1.4 * qs);
-    if (qb && qb.star) { comp += 0.025; intR *= 0.82; }
     const typ = { short: [0.11, 0.62, 1.0, 1.0], deep: [-0.23, 2.05, 1.7, 1.15], screen: [0.17, 0.5, 0.5, 0.35], pa: [-0.02, 1.3, 1.0, 1.15], flea: [-0.1, 2.3, 1.2, 0.8], hbpass: [-0.15, 2.0, 2.0, 0.6] }[oc];
     comp += typ[0]; let yards = g.R.ycomp != null ? g.R.ycomp : g.R.ypc; yards *= typ[1] * yMult; intR *= typ[2]; sack *= typ[3];
     if (oc === 'pa') { const runCred = o.off.run; comp += 0.04 * (runCred - 1); yards *= 1 + 0.15 * (runCred - 1); if (dc === 'runstuff') { comp += 0.06; yards *= 1.3; } }
@@ -300,8 +327,6 @@
     }
     ps.att++;
     const tgt = pickTarget(so, oc); const tn = tgt ? tgt.n : 'receiver';
-    if (tgt && tgt.star) { comp += 0.03; yards *= 1.08; }
-    const cb = sd.CB && sd.CB[0]; if (cb && cb.star && tgt && tgt.pos === 'WR' && R() < 0.5) { comp -= 0.04; }
     comp = clamp(comp, 0.05, 0.9);
     if (R() < comp) {
       let y = Math.round(yards * (0.55 + R() * 0.9) + norm() * 2);
@@ -583,13 +608,26 @@
     if (R() < 0.38) { g.challenges[side]++; return { overturned: true, text: lp.close === 'catch' ? 'After review, it\'s ruled INCOMPLETE. The catch is overturned.' : 'After review, the pass is ruled COMPLETE! Call overturned.' }; }
     return { overturned: false, text: 'After review, the ruling on the field stands.' };
   }
+  // in-game substitution: the new man takes the slot's carries, targets and credit; his rating nudges the unit
+  const SUBW = { QB: { pass: 1.2 }, RB1: { run: 0.8, pass: 0.06 }, RB2: { run: 0.15 }, WR1: { pass: 0.45 }, WR2: { pass: 0.28 }, WR3: { pass: 0.16 }, TE: { pass: 0.15, run: 0.1 } };
+  function slotGet(st, slot) { if (slot === 'QB' || slot === 'TE') return st[slot]; if (slot[0] === 'R') return st.RB[+slot[2] - 1]; return st.WR[+slot[2] - 1]; }
+  function slotSet(st, slot, p) { if (slot === 'QB' || slot === 'TE') st[slot] = p; else if (slot[0] === 'R') st.RB[+slot[2] - 1] = p; else st.WR[+slot[2] - 1] = p; }
+  function subPlayer(g, side, slot, name) {
+    const t = g.teams[side]; const st = g.starters[side];
+    const inP = t.roster.find((p) => p.n === name && !p.generic); if (!inP) return null;
+    const outP = slotGet(st, slot); if (outP === inP) return null;
+    // if the incoming player already holds another skill slot, the two trade places
+    const other = Object.keys(SUBW).find((k) => k !== slot && slotGet(st, k) === inP);
+    if (other) slotSet(st, other, outP);
+    slotSet(st, slot, inP);
+    const nudge = (sl, a, b) => { const w = SUBW[sl]; const gap = ((b ? b.r : 70) - (a ? a.r : 70)) / 100; if (w.pass) t.off.pass *= Math.exp(gap * w.pass); if (w.run) t.off.run *= Math.exp(gap * w.run); };
+    nudge(slot, outP, inP); if (other) nudge(other, inP, outP);
+    return { inP, outP, slot };
+  }
   function changeQB(g, side) {
-    const t = g.teams[side]; const qbs = t.by('QB'); const cur = g.starters[side].QB;
-    const nxt = qbs.find((q) => q !== cur); if (!nxt) return null;
-    g.starters[side].QB = nxt;
-    // backup QB shifts the passing unit by the rating gap
-    const gap = (nxt.r - (cur ? cur.r : nxt.r)) / 100; t.off.pass *= Math.exp(gap * 1.2);
-    return nxt;
+    const t = g.teams[side]; const cur = g.starters[side].QB;
+    const nxt = t.by('QB').find((q) => q !== cur && !q.generic); if (!nxt) return null;
+    subPlayer(g, side, 'QB', nxt.n); return nxt;
   }
 
   /* ---------- sims ---------- */
@@ -598,6 +636,6 @@
   function simTo(g, cond) { let n = 0; const out = []; while (!g.over && n++ < 400 && !cond(g)) out.push(step(g, {})); return out; }
 
   root.Arena = root.Arena || {};
-  root.Arena.football = { RULES, rulesForYear, buildTeam, unitsFromRoster, newGame, step, simGame, simDrive, simTo, setSeed, setK(k) { K = k; }, CAL, timeout, challenge, changeQB, fmtClock, qLabel, spotText, lead, timeLeftGame, aiOffense, aiDefense, fgProb, genericRoster };
+  root.Arena.football = { RULES, rulesForYear, buildTeam, unitsFromRoster, newGame, step, simGame, simDrive, simTo, setSeed, setK(k) { K = k; }, CAL, timeout, challenge, changeQB, subPlayer, fillRoster, fmtClock, qLabel, spotText, lead, timeLeftGame, aiOffense, aiDefense, fgProb, genericRoster };
   if (typeof module !== 'undefined') module.exports = root.Arena.football;
 })(typeof window !== 'undefined' ? window : globalThis);
