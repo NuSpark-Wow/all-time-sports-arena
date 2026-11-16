@@ -53,6 +53,7 @@
   });
   $('#vol').addEventListener('input', (e) => SND.setVolume(+e.target.value));
   $('#homeBtn').addEventListener('click', () => { stopAuto(); if (window.ArenaFootball) window.ArenaFootball.stop(); if (window.__arenaSport === 'football') { window.ArenaFootball.open(); return; } S.screen = 'setup'; render(); });
+  $('#sportsBtn').addEventListener('click', () => document.querySelector('.brand').click());
   document.querySelector('.brand').style.cursor = 'pointer';
   document.querySelector('.brand').addEventListener('click', () => { stopAuto(); if (window.ArenaFootball) window.ArenaFootball.stop(); window.__arenaSport = null; S.screen = 'home'; render(); });
 
