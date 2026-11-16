@@ -173,7 +173,7 @@ table.box th { color: var(--muted); font-weight: 600; font-size: 0.75rem; letter
 <body>
 <div class="wrap">
   <header class="top">
-    <div class="brand">The All-Time Sports Arena<small>Coach any team from any era</small></div>
+    <div class="brand" role="link" tabindex="0" title="All sports">The All-Time Sports Arena<small>Coach any team from any era</small></div>
     <div class="top-actions">
       <button class="chip" id="soundBtn" aria-pressed="false" title="Crowd noise">Crowd: Off</button>
       <input class="vol hide" id="vol" type="range" min="0" max="1" step="0.05" value="0.6" aria-label="Crowd volume">
@@ -181,12 +181,14 @@ table.box th { color: var(--muted); font-weight: 600; font-size: 0.75rem; letter
     </div>
   </header>
   <main id="app"><p class="note"><span class="spin"></span> Loading the ballpark…</p></main>
-  <footer class="note" style="margin-top:28px;border-top:1px solid var(--line);padding-top:12px">Baseball statistics from Sean Lahman's Baseball Database, used under a Creative Commons Attribution-ShareAlike 3.0 license. Not affiliated with MLB or any team.</footer>
+  <footer class="note" style="margin-top:28px;border-top:1px solid var(--line);padding-top:12px">Baseball statistics from Sean Lahman's Baseball Database, used under a Creative Commons Attribution-ShareAlike 3.0 license. Football standings from Wikipedia season pages (CC BY-SA). Not affiliated with MLB or any team.</footer>
 </div>
 <div id="dock" class="dock hide"></div>
 <div id="modal" class="modal hide" role="dialog" aria-modal="true"></div>
 <script src="engine.js"></script>
 <script src="sound.js"></script>
+<script src="fbengine.js"></script>
 <script src="app.js"></script>
+<script src="fbapp.js"></script>
 </body>
 </html>

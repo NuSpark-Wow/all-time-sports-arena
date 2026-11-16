@@ -52,7 +52,9 @@
     else if (SND.enable()) { b.textContent = 'Crowd: On'; b.classList.add('on'); b.setAttribute('aria-pressed', 'true'); $('#vol').classList.remove('hide'); SND.play('cheerDef'); }
   });
   $('#vol').addEventListener('input', (e) => SND.setVolume(+e.target.value));
-  $('#homeBtn').addEventListener('click', () => { stopAuto(); S.screen = 'setup'; render(); });
+  $('#homeBtn').addEventListener('click', () => { stopAuto(); if (window.ArenaFootball) window.ArenaFootball.stop(); if (window.__arenaSport === 'football') { window.ArenaFootball.open(); return; } S.screen = 'setup'; render(); });
+  document.querySelector('.brand').style.cursor = 'pointer';
+  document.querySelector('.brand').addEventListener('click', () => { stopAuto(); if (window.ArenaFootball) window.ArenaFootball.stop(); window.__arenaSport = null; S.screen = 'home'; render(); });
 
   /* ---------------- home ---------------- */
   function renderHome() {
@@ -66,18 +68,23 @@
           <span class="name">Baseball</span>
           <span class="note">Every MLB team and player, 1871–2025. 3,614 team-seasons, plus dream rosters.</span>
         </button>
-        <div class="card sport soon"><span class="badge b-soon">Coming next</span><span class="name">Football</span><span class="note">1970 to today. Player ratings from public stats and reputation; team strength matches the real record.</span></div>
+        <button class="card sport ready" data-go="football">
+          <span class="badge b-silver">Silver / Bronze · Real results</span>
+          <span class="name">Football</span>
+          <span class="note">Every NFL team, 1970–2025. 1,669 team-seasons playing to their real points scored and allowed, with named rosters for iconic teams.</span>
+        </button>
       </div>
       <section class="card guide">
         <h2>How accurate is this?</h2>
         <dl>
           <dt><span class="badge b-gold">Gold</span></dt><dd>Full real stats for every player. Baseball 1901–2025.</dd>
-          <dt><span class="badge b-silver">Silver</span></dt><dd>Real stats, but early-era records are incomplete and the rules differed. Baseball 1871–1900.</dd>
-          <dt><span class="badge b-bronze">Bronze</span></dt><dd>Estimated ratings for lesser-known football teams and players, when football arrives.</dd>
+          <dt><span class="badge b-silver">Silver</span></dt><dd>Baseball 1871–1900 (early records are incomplete and the rules differed), and football teams with named rosters: real points scored and allowed, split into units from the real players.</dd>
+          <dt><span class="badge b-bronze">Bronze</span></dt><dd>Football teams whose named rosters haven't arrived yet: real team strength, position labels instead of names.</dd>
         </dl>
         <p class="note" style="margin-top:12px">Cross-era games are balanced: each player is measured against his own league, then the game is played in a neutral environment. Season replays of real teams land within normal luck of their real records.</p>
       </section>`;
-    app.querySelector('[data-go=setup]').onclick = () => { S.screen = 'setup'; render(); };
+    app.querySelector('[data-go=setup]').onclick = () => { window.__arenaSport = 'baseball'; S.screen = 'setup'; render(); };
+    app.querySelector('[data-go=football]').onclick = () => { window.__arenaSport = 'football'; window.ArenaFootball.open(); };
   }
 
   /* ---------------- setup ---------------- */
@@ -361,7 +368,9 @@
     $('#playBall').onclick = startGame;
     drawLineups();
     setTimeout(() => {
+      if (!$('#proj')) return;
       const pr = E.project(A, H, 300, { dh });
+      if (!$('#proj')) return;
       const n = pr.aw + pr.hw; const aPct = Math.round(pr.aw / n * 100);
       const fav = pr.aw >= pr.hw ? teamTitle(A) : teamTitle(H);
       $('#proj').innerHTML = `<h3>Prediction</h3>
