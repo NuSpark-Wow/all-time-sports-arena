@@ -206,6 +206,23 @@ table.box th { color: var(--muted); font-weight: 600; font-size: 0.75rem; letter
 </div>
 <div id="dock" class="dock hide"></div>
 <div id="modal" class="modal hide" role="dialog" aria-modal="true"></div>
+<script>
+/* The Arena Gazette: a printable newspaper-style recap of the game that just ended (nothing is saved). */
+window.arenaGazette = function () {
+  var z = window.__gz; if (!z) return;
+  var e = function (t) { return String(t == null ? "" : t).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); };
+  var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>The Arena Gazette</title><style>body{font-family:Georgia,"Times New Roman",serif;max-width:780px;margin:22px auto;padding:0 22px;color:#111;background:#fbf8f0}.mast{text-align:center;border-bottom:4px double #111;padding-bottom:6px}.mast h1{font-family:"Old English Text MT","UnifrakturCook",Georgia,serif;font-size:44px;margin:0;letter-spacing:1px}.mast .d{font-family:Arial,sans-serif;font-size:11px;letter-spacing:2px;text-transform:uppercase;border-top:1px solid #111;margin-top:4px;padding-top:4px;display:flex;justify-content:space-between}h2{font-size:34px;line-height:1.1;margin:16px 0 6px;text-align:center}.sub{text-align:center;font-style:italic;margin:0 0 12px}.score{text-align:center;font-family:Arial Black,Arial,sans-serif;font-size:30px;margin:8px 0 14px}.cols{column-count:2;column-gap:26px;font-size:14px;line-height:1.5;text-align:justify}.cols h3{font-family:Arial,sans-serif;font-size:13px;letter-spacing:1px;text-transform:uppercase;margin:0 0 4px;border-bottom:1px solid #111}.cols ul{padding-left:16px;margin:4px 0 12px}.cols li{margin-bottom:4px}.pog{border:2px solid #111;padding:8px 10px;margin:0 0 12px;break-inside:avoid}.foot{font-family:Arial,sans-serif;font-size:10px;color:#555;border-top:1px solid #111;margin-top:16px;padding-top:6px;text-align:center}button{padding:8px 14px;margin-bottom:10px}@media print{button{display:none}body{background:#fff}}</style></head><body>' +
+    '<button onclick="window.print()">🖨 Print or save as PDF</button>' +
+    '<div class="mast"><h1>The Arena Gazette</h1><div class="d"><span>All-Time Sports Arena</span><span>' + e(z.sport) + ' Edition</span><span>' + new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) + '</span></div></div>' +
+    '<h2>' + e(z.headline) + '</h2><p class="sub">' + e(z.sub) + '</p><div class="score">' + e(z.score) + '</div>' +
+    '<div class="cols">' + (z.pog ? '<div class="pog"><b>★ Player of the Game:</b> ' + e(z.pog) + '</div>' : '') +
+    '<h3>How Real Was That?</h3><ul>' + (z.real || "") + '</ul>' +
+    (z.plays && z.plays.length ? '<h3>Key Plays</h3><ul>' + z.plays.map(function (p) { return '<li>' + e(p) + '</li>'; }).join("") + '</ul>' : '') + '</div>' +
+    '<div class="foot">A simulated game played at nusparklearnwow.com · The All-Time Sports Arena · Built on real season statistics.</div></body></html>';
+  var w = window.open("", "_blank"); if (!w) { alert("Allow pop-ups to open your newspaper recap."); return; }
+  w.document.open(); w.document.write(html); w.document.close();
+};
+</script>
 <script src="engine.js"></script>
 <script src="sound.js"></script>
 <script src="fbengine.js"></script>
