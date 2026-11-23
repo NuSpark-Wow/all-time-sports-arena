@@ -417,8 +417,14 @@
       Object.entries(b.def).forEach(([n, v]) => { const s = v.sk * 4 + v.int * 6 + v.ff * 4 + bonus; if (s > bv) { bv = s; best = `${n}: ${v.sk} sacks, ${v.int} INT, ${v.ff} forced fumbles`; } });
     });
     const real = [A, H].map((t, i) => t.dream ? `<li>The ${esc(t.name)} scored ${g.score[i]}. Built from their players' real seasons, they project to about ${t.PF.toFixed(0)} points a game and allow about ${t.PA.toFixed(0)}.</li>` : `<li>The ${t.y} ${esc(t.short)} scored ${g.score[i]}. That season they averaged ${(t.PF / t.G).toFixed(1)} points and allowed ${(t.PA / t.G).toFixed(1)}.</li>`).join('');
+    const wi = g.score[0] === g.score[1] ? -1 : (g.score[0] > g.score[1] ? 0 : 1), TT = [A, H];
+    window.__gz = { sport: 'Football', headline: wi < 0 ? `${T(A)} and ${T(H)} Battle to a Tie` : `${T(TT[wi])} Beat ${T(TT[1 - wi])}, ${Math.max(g.score[0], g.score[1])}–${Math.min(g.score[0], g.score[1])}`,
+      sub: `${T(A)} at ${T(H)} · ${F.RULES[g.rules].label} rules`, score: `${A.short || T(A)} ${g.score[0]}  ·  ${H.short || T(H)} ${g.score[1]}`,
+      pog: best || '', real: real + `<li>Turnovers: ${g.box[0].team.to}–${g.box[1].team.to}. Penalties: ${g.box[0].team.pen}–${g.box[1].team.pen}.</li>`,
+      plays: g.log.filter(l => /touchdown|intercept|fumble|field goal is good|safety/i.test(l.text)).slice(-6).map(l => F.qLabel(l.q) + ' ' + F.fmtClock(l.clock) + ': ' + l.text) };
     return `<section class="card final"><div class="score"><span style="color:var(--away)">${g.score[0]}</span> – <span style="color:var(--home)">${g.score[1]}</span></div>
-      <p style="margin-top:6px"><b>${head}</b></p><p class="note">${esc(T(A))} at ${esc(T(H))} · ${F.RULES[g.rules].label} rules</p>
+      <p style="margin-top:6px"><b>${head}</b></p>
+      <p style="margin-top:8px"><button class="btn small" type="button" onclick="arenaGazette()">🗞 Print the newspaper recap</button></p><p class="note">${esc(T(A))} at ${esc(T(H))} · ${F.RULES[g.rules].label} rules</p>
       ${best ? `<p style="margin-top:10px"><span class="badge b-gold">Player of the game</span> ${esc(best)}</p>` : ''}</section>
       <section class="card" style="margin-top:12px"><h3>How real was that?</h3><ul class="list">${real}<li>Turnovers: ${g.box[0].team.to}–${g.box[1].team.to}. Penalties: ${g.box[0].team.pen}–${g.box[1].team.pen}.</li></ul>
       <p class="note" style="margin-top:8px">One game is a small sample. Over many games, each team scores and allows close to what it really did.</p></section>`;

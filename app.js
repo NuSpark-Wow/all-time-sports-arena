@@ -791,13 +791,19 @@
       if (p.kind === 'bat') { const b = p.b; pogLine = `${esc(b.n)}: ${b.h}-for-${b.ab}${b.hr ? ', ' + b.hr + ' HR' : ''}${b.rbi ? ', ' + b.rbi + ' RBI' : ''}${b.r ? ', ' + b.r + ' R' : ''}`; }
       else { const q = p.p; pogLine = `${esc(q.n)}: ${E.boxIP(q.outs)} IP, ${q.h} H, ${q.er} ER, ${q.so} K`; }
     }
+    const real = howReal(g);
+    const W = S.teams[w], L = S.teams[1 - w];
+    window.__gz = { sport: 'Baseball', headline: g.tie ? 'Marathon Ends in a Tie' : `${teamTitle(W)} Top ${teamTitle(L)}, ${Math.max(g.score[0], g.score[1])}–${Math.min(g.score[0], g.score[1])}`,
+      sub: `${teamTitle(A)} at ${teamTitle(H)}${g.inning > 9 ? ', ' + g.inning + ' innings' : ''}`, score: `${A.short || teamTitle(A)} ${g.score[0]}  ·  ${H.short || teamTitle(H)} ${g.score[1]}`,
+      pog: pogLine.replace(/<[^>]*>/g, '').replace(/&amp;/g, '&'), real, plays: g.log.filter(l => /home run|homer|grand slam|double play|scores|strikes out the side|walk-off/i.test(l.text)).slice(-6).map(l => (l.half ? 'Bottom ' : 'Top ') + l.inn + ': ' + l.text) };
     return `<section class="card final">
       <div class="score"><span style="color:var(--away)">${g.score[0]}</span> – <span style="color:var(--home)">${g.score[1]}</span></div>
       <p style="margin-top:6px"><b>${head}</b></p>
+      <p style="margin-top:8px"><button class="btn small" type="button" onclick="arenaGazette()">🗞 Print the newspaper recap</button></p>
       <p class="note">${teamTitle(A)} at ${teamTitle(H)}${g.inning > 9 ? ' · ' + g.inning + ' innings' : ''}</p>
       ${pogLine ? `<p style="margin-top:10px"><span class="badge b-gold">Player of the game</span> ${pogLine}</p>` : ''}
     </section>
-    <section class="card" style="margin-top:12px"><h3>How real was that?</h3><ul class="list">${howReal(g)}</ul>
+    <section class="card" style="margin-top:12px"><h3>How real was that?</h3><ul class="list">${real}</ul>
       <p class="note" style="margin-top:8px">One game is a small sample. Over many games, each player's numbers line up with his real season.</p></section>`;
   }
   function bindFinal() { /* actions live in the dock */ }
